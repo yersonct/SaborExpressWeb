@@ -1,0 +1,27 @@
+# Arquitectura de Proyecto: Feature-First (Domain-Driven)
+
+[cite_start]Esta estructura organiza el código agrupándolo por **funcionalidades (dominios)** en lugar de agruparlo únicamente por tipo de archivo[cite: 25]. [cite_start]Esto facilita enormemente la escalabilidad y la reutilización de código entre plataformas (Web y Móvil)[cite: 26].
+
+## Estructura de Directorios
+
+[cite_start]La jerarquía sigue este patrón[cite: 27]:
+
+* [cite_start]**/src/app**: Contiene el enrutamiento y las páginas principales[cite: 27].
+* **/src/components**:
+    * [cite_start]`/layout`: Componentes de estructura (sidebar, main-layout)[cite: 28].
+    * [cite_start]`/ui`: Componentes atómicos reutilizables (botones, inputs, modales) que pueden ser compartidos entre Web y Móvil[cite: 29].
+* [cite_start]**/src/features**: El núcleo de la aplicación[cite: 30]. [cite_start]Cada subcarpeta (ej. `auth`) contiene[cite: 31]:
+    * [cite_start]`hooks/`: Lógica de estado específica de la función[cite: 31].
+    * [cite_start]`services/`: Llamadas al backend/API[cite: 32].
+    * [cite_start]`types/`: Definiciones de datos[cite: 32].
+* [cite_start]**/src/views**: Capa de presentación que consume las funcionalidades[cite: 33].
+* [cite_start]**/src/services** & **/src/store**: Lógica global de comunicación y gestión de estado compartida[cite: 34].
+
+## Beneficios para Web y Móvil
+
+[cite_start]La elección de esta arquitectura es ideal para proyectos multiplataforma por las siguientes razones[cite: 35]:
+
+1.  [cite_start]**Reutilización de Lógica**: Al separar la lógica de negocio (`services` y `hooks`) de la vista, es posible compartir gran parte del código en un *Monorepo* o al migrar a frameworks como React Native[cite: 35].
+2.  [cite_start]**Mantenibilidad**: Si se requiere realizar un ajuste en el flujo de una funcionalidad, todo el código relacionado (`hooks`, `tipos`, `servicios`) se encuentra dentro de la misma carpeta `/features`, independientemente de si la aplicación es móvil o web[cite: 36].
+3.  [cite_start]**Separación de Vistas y Lógica**: Mantener las `/views` separadas de los `/components` y `/features` garantiza que la capa de presentación sea independiente de la lógica de negocio[cite: 37]. [cite_start]Esto permite reutilizar el núcleo de la aplicación en el móvil sin necesidad de reescribir la lógica[cite: 38].
+4.  [cite_start]**Escalabilidad**: Esta estructura mantiene el código ordenado y permite que el equipo encuentre rápidamente dónde realizar cambios sin impactar otras áreas del sistema[cite: 39].
