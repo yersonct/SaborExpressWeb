@@ -4,7 +4,13 @@ export interface LoginCredentials {
 }
 
 export interface UserSession {
-  id: string;
-  email: string;
+  identifier: string;
+  roles: string[];
   token: string;
+}
+
+
+ export interface ForgotPasswordFlowProps {
+  onNotify: (msg: string, type: "success" | "error") => void;
+  onSuccess: (msg: string) => void;
 }

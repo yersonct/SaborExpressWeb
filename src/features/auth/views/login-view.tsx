@@ -7,12 +7,13 @@ import { LanguageSelector } from '@/components/ui/language-selector';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { NotificationModal } from '@/components/ui/modal';
-import { authService } from '../hooks/use-auth';
+import { useAuth } from "../hooks/use-auth";
 import { useRouter } from 'next/navigation';
-import logo from '../../../img/logo.png';
+import logo from '@/assets/img/logo.png';
 import i18n from '@/config/i18n';
 
 import { ForgotPasswordFlow } from './ForgotPasswordFlow'; 
+import { authService } from '../services/auth.service';
 
 export default function LoginView() {
   // SOLUCIÓN 1: Estado para evitar el error de hidratación
@@ -24,6 +25,7 @@ export default function LoginView() {
   
   const [activeView, setActiveView] = useState<'login' | 'forgot'>('login');
   
+  const { login } = useAuth();
   const router = useRouter();
   const { t } = useTranslation();
   const logos: Record<string, any> = {
@@ -48,13 +50,14 @@ export default function LoginView() {
     setLoading(true);
 
     try {
-      await authService.login({ email, password });
-      setModal({ isOpen: true, message: t('login.success'), type: 'success' });
+      const session = await authService.login({ email, password }); // 👈 ahora capturas el resultado
+      login(session); // 👈 lo guardas en el hook (persiste en localStorage)
+      setModal({ isOpen: true, message: t("login.success"), type: "success" });
       setTimeout(() => {
-        router.push('/dashboard');
+        router.push("/dashboard");
       }, 2000);
     } catch (error) {
-      setModal({ isOpen: true, message: t('login.error'), type: 'error' });
+      setModal({ isOpen: true, message: t("login.error"), type: "error" });
     } finally {
       setLoading(false);
     }

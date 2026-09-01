@@ -1,59 +1,40 @@
-  import { LoginCredentials, UserSession } from '../types/auth.types';
+"use client";
 
-  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+import { useCallback, useEffect, useState } from "react";
+import type { UserSession } from "../types/auth.types";
 
-  const isValidEmail = (email: string) => /[^\s@]+@[^\s@]+\.[^\s@]+/.test(email.trim());
+const SESSION_KEY = "sabor-express-session";
 
-  const MOCK_RESET_CODE = '123456';
+function readSession(): UserSession | null {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(SESSION_KEY);
+  return raw ? (JSON.parse(raw) as UserSession) : null;
+}
 
-  export const authService = {
-    login: async (credentials: LoginCredentials): Promise<UserSession> => {
-      await delay(1000);
+export function useAuth() {
+  const [session, setSession] = useState<UserSession | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false); 
 
-      if (credentials.email === 'yersonstivencuellarrubiano@gmail.com' && credentials.password === '123456') {
-        return {
-          id: '1',
-          email: credentials.email,
-          token: 'fake-jwt-token-123456'
-        };
-      }
+  useEffect(() => {
+    setSession(readSession());
+    setIsHydrated(true); 
+  }, []);
 
-      throw new Error('Credenciales incorrectas');
-    },
+  const login = useCallback((newSession: UserSession) => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(newSession));
+    setSession(newSession);
+  }, []);
 
-    requestPasswordReset: async (email: string): Promise<void> => {
-      await delay(1000);
+  const logout = useCallback(() => {
+    localStorage.removeItem(SESSION_KEY);
+    setSession(null);
+  }, []);
 
-      if (!isValidEmail(email)) {
-        throw new Error('Ingresa un correo electrónico válido');
-      }
-    },
-
-    verifyPasswordResetCode: async (email: string, code: string): Promise<void> => {
-      await delay(1000);
-
-      if (!isValidEmail(email)) {
-        throw new Error('Ingresa un correo electrónico válido');
-      }
-
-      if (code.trim() !== MOCK_RESET_CODE) {
-        throw new Error('El código ingresado no es válido');
-      }
-    },
-
-    resetPassword: async (email: string, code: string, newPassword: string): Promise<void> => {
-      await delay(1000);
-
-      if (!isValidEmail(email)) {
-        throw new Error('Ingresa un correo electrónico válido');
-      }
-
-      if (code.trim() !== MOCK_RESET_CODE) {
-        throw new Error('El código ingresado no es válido');
-      }
-
-      if (newPassword.trim().length < 6) {
-        throw new Error('La contraseña debe tener al menos 6 caracteres');
-      }
-    }
+  return {
+    session,
+    isAuthenticated: !!session,
+    isHydrated, 
+    login,
+    logout,
   };
+}
