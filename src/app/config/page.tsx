@@ -1,4 +1,4 @@
-import { ConfigView } from '@/features/auth/views/config-view';
+import { ConfigView } from '@/features/Configurations/views/config-view';
 
 export default function ConfigPage() {
   return <ConfigView />;

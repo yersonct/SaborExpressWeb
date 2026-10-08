@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { MainLayout } from "@/components/layout/main-layout";
 import { Dialog } from "@/components/ui/dialog";
 import { NotificationModal } from "@/components/ui/modal";
 import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useBranches } from "../hooks/use-branches";
 import { BranchCard } from "../components/branch-card";
 import { MyBranchView } from "./my-branch-view";
+import { BranchEmployeesModal } from "../components/branch-employees-modal";
 import type { Branch } from "../types/branch.types";
 import {
   validateBranchForm,
@@ -41,13 +41,18 @@ export const BranchesView = () => {
 // Vista completa para el Gerente: lista, crea, edita y elimina sedes
 const BranchesManagerView = () => {
   const { branches, loading, error, createBranch, updateBranch, deleteBranch } =
-    useBranches();
+    useBranches(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 6;
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Branch | null>(null);
   const [saving, setSaving] = useState(false);
   const [notify, setNotify] = useState<NotifyState>(null);
+  const [viewingEmployeesOf, setViewingEmployeesOf] = useState<Branch | null>(
+    null,
+  );
 
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -127,10 +132,15 @@ const BranchesManagerView = () => {
       setSaving(false);
     }
   };
-
+  const totalPages = Math.ceil(branches.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const paginatedBranches = branches.slice(
+    startIndex,
+    startIndex + ITEMS_PER_PAGE,
+  );
   return (
-    <MainLayout>
-      <div className="max-w-6xl mx-auto space-y-6 pb-10">
+    <>
+      <div className="space-y-6 pb-10">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-extrabold text-[#111827] tracking-tight">
@@ -138,6 +148,10 @@ const BranchesManagerView = () => {
             </h1>
             <p className="text-gray-500 mt-1">
               Administra las sedes registradas en el sistema.
+            </p>
+            <p className="text-sm font-semibold text-[#EA1D2C] mt-2">
+              {branches.length}{" "}
+              {branches.length === 1 ? "sede registrada" : "sedes registradas"}
             </p>
           </div>
           <button
@@ -170,16 +184,120 @@ const BranchesManagerView = () => {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {branches.map((branch, index) => (
-              <BranchCard
-                key={branch.id}
-                branch={branch}
-                index={index}
-                onEdit={openEdit}
-                onDelete={setConfirmDelete}
-              />
-            ))}
+          <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50/50 text-xs text-gray-500 uppercase tracking-wider">
+                    <th className="px-5 py-3 font-semibold">Sede</th>
+                    <th className="px-5 py-3 font-semibold">Dirección</th>
+                    <th className="px-5 py-3 font-semibold">Teléfono</th>
+                    <th className="px-5 py-3 font-semibold text-center">
+                      Empleados
+                    </th>
+                    <th className="px-5 py-3 font-semibold text-center">
+                      Estado
+                    </th>
+                    <th className="px-5 py-3 font-semibold text-right">
+                      Acciones
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm divide-y divide-gray-100">
+                  {paginatedBranches.map((branch) => (
+                    <tr
+                      key={branch.id}
+                      onClick={() => setViewingEmployeesOf(branch)}
+                      className="hover:bg-red-50/40 hover:shadow-sm transition-all cursor-pointer group"
+                    >
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-[#111827] text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
+                            {branch.name.charAt(0)}
+                          </div>
+                          <span className="font-bold text-[#111827] group-hover:text-[#EA1D2C] transition-colors">
+                            {branch.name}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 text-gray-600">
+                        {branch.address ?? "—"}
+                      </td>
+                      <td className="px-5 py-4 text-gray-600">
+                        {branch.phone ?? "—"}
+                      </td>
+                      <td className="px-5 py-4 text-center text-gray-600">
+                        {branch.employeeCount}
+                      </td>
+                      <td className="px-5 py-4 text-center">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold border ${
+                            branch.status
+                              ? "bg-green-50 text-green-700 border-green-200"
+                              : "bg-gray-100 text-gray-500 border-gray-200"
+                          }`}
+                        >
+                          {branch.status ? "Activa" : "Inactiva"}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEdit(branch);
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDelete(branch);
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 border border-red-200 hover:bg-red-50 transition-colors"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100">
+                <p className="text-xs text-gray-500">
+                  Mostrando {startIndex + 1}–
+                  {Math.min(startIndex + ITEMS_PER_PAGE, branches.length)} de{" "}
+                  {branches.length}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Anterior
+                  </button>
+                  <span className="px-3 py-1.5 text-xs font-bold text-gray-500">
+                    Página {currentPage} de {totalPages}
+                  </span>
+                  <button
+                    onClick={() =>
+                      setCurrentPage((p) => Math.min(totalPages, p + 1))
+                    }
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -314,6 +432,11 @@ const BranchesManagerView = () => {
         type={notify?.type ?? "success"}
         onClose={() => setNotify(null)}
       />
-    </MainLayout>
+
+      <BranchEmployeesModal
+        branch={viewingEmployeesOf}
+        onClose={() => setViewingEmployeesOf(null)}
+      />
+    </>
   );
 };

@@ -1,4 +1,4 @@
-import { OrdersView } from '@/features/auth/views/orders-view';
+import { OrdersView } from '@/features/Order/views/orders-view';
 
 export default function OrdersPage() {
   return <OrdersView />;

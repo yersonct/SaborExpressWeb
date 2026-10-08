@@ -11,6 +11,7 @@ import { useAuth } from "../hooks/use-auth";
 import { useRouter } from 'next/navigation';
 import logo from '@/assets/img/logo.png';
 import i18n from '@/config/i18n';
+import { ROUTES } from '@/config/routes';
 
 import { ForgotPasswordFlow } from './ForgotPasswordFlow'; 
 import { authService } from '../services/auth.service';
@@ -45,20 +46,47 @@ export default function LoginView() {
     setMounted(true);
   }, []);
 
+  const ALLOWED_WEB_ROLES = ["GERENTE", "ADMINISTRADOR"];
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const session = await authService.login({ email, password }); // 👈 ahora capturas el resultado
-      login(session); // 👈 lo guardas en el hook (persiste en localStorage)
+      const session = await authService.login({ email, password });
+
+      const tieneAccesoWeb = session.roles.some((r) =>
+        ALLOWED_WEB_ROLES.includes(r),
+      );
+
+      if (!tieneAccesoWeb) {
+        setModal({
+          isOpen: true,
+          message:
+            "Esta cuenta no tiene acceso al panel web. Usa la app móvil de SaborExpress.",
+          type: "error",
+        });
+        setLoading(false);
+        return;
+      }
+
+      login(session);
       setModal({ isOpen: true, message: t("login.success"), type: "success" });
       setTimeout(() => {
-        router.push("/dashboard");
+        router.push(ROUTES.dashboard);
       }, 2000);
-    } catch (error) {
-      setModal({ isOpen: true, message: t("login.error"), type: "error" });
-    } finally {
+    } catch (error: any) {
+      console.error(
+        "LOGIN ERROR:",
+        error?.response?.status,
+        error?.response?.data,
+        error?.message,
+      );
+      setModal({
+        isOpen: true,
+        message: error?.message || t("login.error"),
+        type: "error",
+      });
       setLoading(false);
     }
   };
