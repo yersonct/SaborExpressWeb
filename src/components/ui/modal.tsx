@@ -31,7 +31,7 @@ export const NotificationModal = ({
           setTimeout(() => {
             onClose();
           }, 300);
-        }, 2000);
+        }, 3000);
         return () => clearTimeout(timer);
       }
     }

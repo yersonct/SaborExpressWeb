@@ -4,13 +4,18 @@ import { useCallback, useEffect, useState } from "react";
 import { branchService } from "../services/branch.service";
 import type { Branch, UpdateBranchPayload } from "../types/branch.types";
 
-export function useMyBranch() {
+export function useMyBranch(enabled?: boolean) {
+  const isEnabled = enabled === true;
   const [branch, setBranch] = useState<Branch | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(isEnabled);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const fetchMyBranch = useCallback(async () => {
+    if (!isEnabled) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -23,7 +28,7 @@ export function useMyBranch() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isEnabled]);
 
   useEffect(() => {
     fetchMyBranch();

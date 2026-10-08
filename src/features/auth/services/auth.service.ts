@@ -2,9 +2,11 @@ import { http } from "@/config/api";
 import type { LoginCredentials, UserSession } from "../types/auth.types";
 
 interface LoginApiResponse {
+  userId: number;
   token: string;
   roles: string[];
   identifier: string;
+  refreshToken: string;
 }
 
 interface VerifyResetCodeResponse {
@@ -33,9 +35,11 @@ export const authService = {
     });
 
     return {
+      userId: data.userId,
       identifier: data.identifier,
       roles: data.roles,
       token: data.token,
+      refreshToken: data.refreshToken,
     };
   },
 
@@ -108,5 +112,18 @@ export const authService = {
       newPassword: newPassword.trim(),
       confirmPassword: confirmPassword.trim(),
     });
+  },
+  refreshToken: async (refreshToken: string): Promise<UserSession> => {
+    const { data } = await http.post<LoginApiResponse>("/Auth/refresh-token", {
+      refreshToken,
+    });
+
+    return {
+      userId: data.userId,
+      identifier: data.identifier,
+      roles: data.roles,
+      token: data.token,
+      refreshToken: data.refreshToken,
+    };
   },
 };

@@ -1,5 +1,5 @@
-import  LoginView  from '@/features/auth/views/login-view';
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return <LoginView />;
+  redirect("/login");
 }

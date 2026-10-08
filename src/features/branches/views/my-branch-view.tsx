@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { MainLayout } from "@/components/layout/main-layout";
 import { Dialog } from "@/components/ui/dialog";
 import { NotificationModal } from "@/components/ui/modal";
 import { useMyBranch } from "../hooks/use-my-branch";
+import { useAuth } from "@/features/auth/hooks/use-auth";
+import { BranchEmployeesModal } from "../components/branch-employees-modal";
 
 
 
@@ -17,10 +18,18 @@ const labelClass =
   "block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2";
 
 export const MyBranchView = () => {
-  const { branch, loading, saving, error, updateMyBranch } = useMyBranch();
+  const { session } = useAuth();
+  const isAdministrador = session?.roles.includes("ADMINISTRADOR");
+  const isGerente = session?.roles.includes("GERENTE");
+
+  // Solo el Administrador tiene una sede fija; al Gerente ni siquiera
+  // le disparamos el fetch a /Branches/mine (por eso el 409 en consola).
+  const { branch, loading, saving, error, updateMyBranch } =
+    useMyBranch(isAdministrador);
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [notify, setNotify] = useState<NotifyState>(null);
+  const [showEmployees, setShowEmployees] = useState(false);
 
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -52,7 +61,7 @@ export const MyBranchView = () => {
   };
 
   return (
-    <MainLayout>
+    <>
       <div className="max-w-2xl mx-auto space-y-6 pb-10">
         <div>
           <h1 className="text-3xl font-extrabold text-[#111827] tracking-tight">
@@ -63,7 +72,14 @@ export const MyBranchView = () => {
           </p>
         </div>
 
-        {loading ? (
+        {isGerente ? (
+          <div className="bg-white rounded-xl border border-gray-200 p-16 text-center">
+            <p className="text-gray-400 font-medium">
+              Como Gerente administras todas las sedes de la red. Ve a la
+              sección "Sedes" para verlas y gestionarlas todas.
+            </p>
+          </div>
+        ) : loading ? (
           <div className="h-56 rounded-xl bg-gray-100 animate-pulse" />
         ) : error ? (
           <div className="bg-red-50 border border-red-100 rounded-2xl p-6 text-sm text-red-600">
@@ -110,13 +126,20 @@ export const MyBranchView = () => {
                 {branch.employeeCount === 1 ? "empleado" : "empleados"}
               </span>
             </div>
-
-            <button
-              onClick={openEdit}
-              className="w-full py-2 rounded-lg text-xs font-semibold text-[#111827] border border-gray-200 hover:bg-gray-50 transition-colors"
-            >
-              Editar
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={openEdit}
+                className="flex-1 py-2 rounded-lg text-xs font-semibold text-[#111827] border border-gray-200 hover:bg-gray-50 transition-colors"
+              >
+                Editar
+              </button>
+              <button
+                onClick={() => setShowEmployees(true)}
+                className="flex-1 py-2 rounded-lg text-xs font-semibold text-white bg-[#111827] hover:bg-gray-800 transition-colors"
+              >
+                Ver empleados
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -203,6 +226,11 @@ export const MyBranchView = () => {
         type={notify?.type ?? "success"}
         onClose={() => setNotify(null)}
       />
-    </MainLayout>
+
+      <BranchEmployeesModal
+        branch={showEmployees ? branch : null}
+        onClose={() => setShowEmployees(false)}
+      />
+    </>
   );
 };
