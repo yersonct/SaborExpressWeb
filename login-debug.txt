@@ -1,0 +1,823 @@
+
+
+===== config\api.ts =====
+import axios from "axios";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+
+const SESSION_KEY = "sabor-express-session";
+export const SERVER_BASE_URL = API_BASE;
+export const http = axios.create({
+  baseURL: `${API_BASE}/api`,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+function readSession() {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(SESSION_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+function saveSession(session: any) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
+
+http.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const session = readSession();
+    if (session?.token) {
+      config.headers.Authorization = `Bearer ${session.token}`;
+    }
+  }
+  return config;
+});
+
+// Muestra un aviso breve en pantalla antes de redirigir al login.
+// Vive fuera de React (el interceptor no tiene acceso a hooks/contexto),
+// así que se construye con DOM plano.
+function showSessionExpiredToast() {
+  if (document.getElementById("session-expired-toast")) return; // evita duplicados
+
+  const toast = document.createElement("div");
+  toast.id = "session-expired-toast";
+  toast.textContent =
+    "Tu sesión expiró o se inició en otro dispositivo. Redirigiendo al login...";
+  toast.style.cssText = `
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #111827;
+    color: #ffffff;
+    padding: 14px 24px;
+    border-radius: 12px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    z-index: 999999;
+    border-left: 4px solid #EA1D2C;
+  `;
+  document.body.appendChild(toast);
+}
+
+let redirecting = false;
+
+// --- Lógica de refresh automático ---
+let isRefreshing = false;
+let refreshSubscribers: Array<{
+  resolve: (token: string) => void;
+  reject: (err: unknown) => void;
+}> = [];
+
+function onTokenRefreshed(newToken: string) {
+  refreshSubscribers.forEach((s) => s.resolve(newToken));
+  refreshSubscribers = [];
+}
+
+function onRefreshFailed(err: unknown) {
+  refreshSubscribers.forEach((s) => s.reject(err));
+  refreshSubscribers = [];
+}
+
+function forceLogout() {
+  if (redirecting) return;
+  redirecting = true;
+  localStorage.removeItem(SESSION_KEY);
+  showSessionExpiredToast();
+  setTimeout(() => {
+    window.location.href = "/login";
+  }, 2500);
+}
+
+http.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    // Reescribe error.message con el mensaje real que manda el backend
+    // (ej. "Ya existe una mesa con ese número en esta sucursal"), para que
+    // cualquier `catch` en cualquier hook lo reciba correcto automáticamente,
+    // en vez del genérico "Request failed with status code 400" de Axios.
+    const backendMessage =
+      error?.response?.data?.error ?? error?.response?.data?.message;
+    if (backendMessage) {
+      error.message = backendMessage;
+    }
+
+    if (typeof window === "undefined") {
+      return Promise.reject(error);
+    }
+
+    const originalRequest = error.config;
+    const isLoginAttempt = originalRequest?.url?.includes("/Auth/login");
+    const isRefreshAttempt = originalRequest?.url?.includes(
+      "/Auth/refresh-token",
+    );
+
+    if (error?.response?.status !== 401 || isLoginAttempt || isRefreshAttempt) {
+      // Si el propio refresh-token falló (refresh token vencido/inválido),
+      // no hay nada más que hacer: cerramos sesión.
+      if (error?.response?.status === 401 && isRefreshAttempt) {
+        forceLogout();
+      }
+      return Promise.reject(error);
+    }
+
+    // Evita reintentar infinitamente la misma petición
+    if (originalRequest._retry) {
+      forceLogout();
+      return Promise.reject(error);
+    }
+    originalRequest._retry = true;
+
+    const session = readSession();
+    if (!session?.refreshToken) {
+      forceLogout();
+      return Promise.reject(error);
+    }
+
+    // Si ya hay un refresh en curso, encolamos esta petición
+    // hasta que termine, en vez de disparar refresh-token varias veces a la vez.
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        refreshSubscribers.push({
+          resolve: (newToken: string) => {
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            resolve(http(originalRequest));
+          },
+          reject,
+        });
+      });
+    }
+
+    isRefreshing = true;
+
+    try {
+      const { data } = await axios.post(
+        `${http.defaults.baseURL}/Auth/refresh-token`,
+        { refreshToken: session.refreshToken },
+      );
+
+      const newSession = {
+        ...session,
+        userId: data.userId ?? session.userId,
+        identifier: data.identifier,
+        roles: data.roles,
+        token: data.token,
+        refreshToken: data.refreshToken,
+      };
+      saveSession(newSession);
+
+      isRefreshing = false;
+      onTokenRefreshed(data.token);
+
+      originalRequest.headers.Authorization = `Bearer ${data.token}`;
+      return http(originalRequest);
+    } catch (refreshError) {
+      isRefreshing = false;
+      onRefreshFailed(refreshError);
+      forceLogout();
+      return Promise.reject(refreshError);
+    }
+  },
+);
+export const publicHttp = axios.create({
+  baseURL: `${API_BASE}/api`,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+===== config\routes.ts =====
+export const ROUTES = {
+  login: "/login",
+  dashboard: "/p1",
+  orders: "/p2",
+  audit: "/p3",
+  products: "/p4",
+  employees: "/p5",
+  branches: "/p6",
+  config: "/p7",
+  tables: "/p8",
+  schedules: "/p9",
+  deliveries: "/p10",
+  reviews: "/p11",
+} as const;
+
+
+===== features\auth\services\auth.service.ts =====
+import { http } from "@/config/api";
+import type { LoginCredentials, UserSession } from "../types/auth.types";
+
+interface LoginApiResponse {
+  userId: number;
+  token: string;
+  roles: string[];
+  identifier: string;
+  refreshToken: string;
+}
+
+interface VerifyResetCodeResponse {
+  resetToken: string;
+}
+
+export class RateLimitError extends Error {
+  retryAfterSeconds: number;
+
+  constructor(message: string, retryAfterSeconds: number) {
+    super(message);
+    this.name = "RateLimitError";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+const isValidEmail = (identifier: string) =>
+  /[^\s@]+@[^\s@]+\.[^\s@]+/.test(identifier.trim());
+
+export const authService = {
+  // ✅ CONECTADO: POST /api/Auth/login
+  login: async (credentials: LoginCredentials): Promise<UserSession> => {
+    const { data } = await http.post<LoginApiResponse>("/Auth/login", {
+      identifier: credentials.email,
+      password: credentials.password,
+    });
+
+    return {
+      userId: data.userId,
+      identifier: data.identifier,
+      roles: data.roles,
+      token: data.token,
+      refreshToken: data.refreshToken,
+    };
+  },
+
+  // ✅ CONECTADO: POST /api/Auth/forgot-password
+  // Body: { identifier }
+  // ✅ CONECTADO: POST /api/Auth/forgot-password
+  // Body: { identifier }
+  requestPasswordReset: async (identifier: string): Promise<void> => {
+    if (!isValidEmail(identifier)) {
+      throw new Error("Ingresa un correo electrónico válido");
+    }
+
+    try {
+      await http.post("/Auth/forgot-password", {
+        identifier: identifier.trim(),
+      });
+    } catch (err: any) {
+      if (err?.response?.status === 429) {
+        const retryAfterSeconds = err.response.data?.retryAfterSeconds ?? 0;
+        throw new RateLimitError(
+          err.response.data?.message ??
+            "Demasiados intentos. Intenta más tarde.",
+          retryAfterSeconds,
+        );
+      }
+      throw err;
+    }
+  },
+
+  // ✅ CONECTADO: POST /api/Auth/verify-reset-code
+  // Body: { identifier, code } → devuelve { resetToken }
+  verifyPasswordResetCode: async (
+    identifier: string,
+    code: string,
+  ): Promise<string> => {
+    if (!isValidEmail(identifier)) {
+      throw new Error("Ingresa un correo electrónico válido");
+    }
+    if (!code.trim()) {
+      throw new Error("Ingresa el código");
+    }
+
+    const { data } = await http.post<VerifyResetCodeResponse>(
+      "/Auth/verify-reset-code",
+      {
+        identifier: identifier.trim(),
+        code: code.trim(),
+      },
+    );
+
+    return data.resetToken;
+  },
+
+  // ✅ CONECTADO: POST /api/Auth/reset-password
+  // Body: { resetToken, newPassword, confirmPassword }
+  resetPassword: async (
+    resetToken: string,
+    newPassword: string,
+    confirmPassword: string,
+  ): Promise<void> => {
+    if (newPassword.trim().length < 6) {
+      throw new Error("La contraseña debe tener al menos 6 caracteres");
+    }
+    if (newPassword.trim() !== confirmPassword.trim()) {
+      throw new Error("Las contraseñas no coinciden");
+    }
+
+    await http.post("/Auth/reset-password", {
+      resetToken,
+      newPassword: newPassword.trim(),
+      confirmPassword: confirmPassword.trim(),
+    });
+  },
+  refreshToken: async (refreshToken: string): Promise<UserSession> => {
+    const { data } = await http.post<LoginApiResponse>("/Auth/refresh-token", {
+      refreshToken,
+    });
+
+    return {
+      userId: data.userId,
+      identifier: data.identifier,
+      roles: data.roles,
+      token: data.token,
+      refreshToken: data.refreshToken,
+    };
+  },
+};
+
+
+===== features\auth\context\auth-context.tsx =====
+"use client";
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
+import type { UserSession } from "../types/auth.types";
+
+const SESSION_KEY = "sabor-express-session";
+
+interface AuthContextValue {
+  session: UserSession | null;
+  isAuthenticated: boolean;
+  isHydrated: boolean;
+  login: (session: UserSession) => void;
+  logout: () => void;
+}
+
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+function readSession(): UserSession | null {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(SESSION_KEY);
+  return raw ? (JSON.parse(raw) as UserSession) : null;
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<UserSession | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+    setSession(readSession());
+    setIsHydrated(true);
+  }, []);
+
+  const login = useCallback((newSession: UserSession) => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(newSession));
+    setSession(newSession);
+  }, []);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem(SESSION_KEY);
+    setSession(null);
+  }, []);
+
+  return (
+    <AuthContext.Provider
+      value={{ session, isAuthenticated: !!session, isHydrated, login, logout }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth debe usarse dentro de <AuthProvider>");
+  }
+  return ctx;
+}
+
+
+===== features\auth\hooks\use-auth.ts =====
+export { useAuth } from "../context/auth-context";
+
+
+===== features\auth\types\auth.types.ts =====
+export interface LoginCredentials {
+  email: string;
+  password: string;
+}
+
+export interface UserSession {
+  userId: number;
+  identifier: string;
+  roles: string[];
+  token: string;
+  refreshToken: string;
+}
+
+
+ export interface ForgotPasswordFlowProps {
+  onNotify: (msg: string, type: "success" | "error") => void;
+  onSuccess: (msg: string) => void;
+}
+
+===== features\auth\views\login-view.tsx =====
+'use client';
+
+import { useState, useEffect } from 'react';
+import Image from 'next/image';
+import { useTranslation } from 'react-i18next';
+import { LanguageSelector } from '@/components/ui/language-selector';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { NotificationModal } from '@/components/ui/modal';
+import { useAuth } from "../hooks/use-auth";
+import { useRouter } from 'next/navigation';
+import logo from '@/assets/img/logo.png';
+import i18n from '@/config/i18n';
+
+import { ForgotPasswordFlow } from './ForgotPasswordFlow'; 
+import { authService } from '../services/auth.service';
+
+export default function LoginView() {
+  // SOLUCIÓN 1: Estado para evitar el error de hidratación
+  const [mounted, setMounted] = useState(false);
+
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  
+  const [activeView, setActiveView] = useState<'login' | 'forgot'>('login');
+  
+  const { login } = useAuth();
+  const router = useRouter();
+  const { t } = useTranslation();
+  const logos: Record<string, any> = {
+    es: logo,
+  };
+
+  const currentLang = i18n.resolvedLanguage?.split('-')[0] || 'es';
+  const activeLogo = logos[currentLang] || logo;
+  const [modal, setModal] = useState({
+    isOpen: false,
+    message: '',
+    type: 'success' as 'success' | 'error',
+  });
+
+  // SOLUCIÓN 1: Esperar a que el componente se monte en el cliente
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const ALLOWED_WEB_ROLES = ["GERENTE", "ADMINISTRADOR"];
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const session = await authService.login({ email, password });
+
+      const tieneAccesoWeb = session.roles.some((r) =>
+        ALLOWED_WEB_ROLES.includes(r),
+      );
+
+      if (!tieneAccesoWeb) {
+        setModal({
+          isOpen: true,
+          message:
+            "Esta cuenta no tiene acceso al panel web. Usa la app móvil de SaborExpress.",
+          type: "error",
+        });
+        setLoading(false);
+        return;
+      }
+
+      login(session);
+      setModal({ isOpen: true, message: t("login.success"), type: "success" });
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 2000);
+    } catch (error) {
+      setModal({ isOpen: true, message: t("login.error"), type: "error" });
+      setLoading(false);
+    }
+  };
+
+  // SOLUCIÓN 1: Si no está montado, devolvemos null para no generar HTML discordante
+  if (!mounted) {
+    return null;
+  }
+
+  return (
+    <div className="flex min-h-screen w-full bg-[#F3F4F6] overflow-hidden">
+
+      <div className="hidden lg:flex w-[60%] bg-gradient-to-br from-[#081A38] via-[#0F2F6B] to-[#163B80] items-center justify-center relative overflow-hidden transition-all duration-700">
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.03),transparent_70%)]"></div>
+          <div className="absolute top-[-120px] left-[-120px] w-[350px] h-[350px] bg-[#EA1D2C] opacity-20 blur-3xl rounded-full animate-pulse"></div>
+          <div className="absolute bottom-[-150px] right-[-100px] w-[400px] h-[400px] bg-[#F59E0B] opacity-10 blur-3xl rounded-full animate-pulse"></div>
+          <div className="absolute top-[40%] left-[50%] w-[320px] h-[320px] bg-[#2563EB] opacity-20 blur-[120px] rounded-full"></div>
+          <div className="absolute inset-0 opacity-[0.06] bg-[linear-gradient(to_right,#ffffff_1px,transparent_1px),linear-gradient(to_bottom,#ffffff_1px,transparent_1px)] bg-[size:60px_60px]"></div>
+        </div>
+
+        <div className="relative z-10 flex flex-col items-center justify-center px-12">
+          <div className="relative flex items-center justify-center animate-in fade-in zoom-in duration-1000">
+            <div className="absolute w-[420px] h-[420px] bg-[#EA1D2C] opacity-15 blur-[120px] rounded-full"></div>
+            {/* SOLUCIÓN 2: w-auto h-auto agregado en el className */}
+            <Image
+              src={activeLogo}
+              alt="SaborExpress"
+              width={720}
+              height={820}
+              priority
+              className="relative object-contain w-auto h-auto drop-shadow-[0_0_45px_rgba(234,29,44,0.28)] hover:scale-105 transition-all duration-500"
+            />
+          </div>
+          <div className="mt-8 text-center animate-in fade-in slide-in-from-bottom duration-1000">
+            <p className="mt-4 text-gray-300 text-lg tracking-wide max-w-md">
+               {t('login.description')}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="w-full lg:w-[40%] flex items-center justify-center p-8 bg-[#F3F4F6] relative overflow-hidden">
+
+        <div className="absolute top-6 right-6 md:top-8 md:right-8 z-50 w-40">
+          <LanguageSelector direction="down" />
+        </div>
+
+        <div className="absolute top-[-80px] right-[-80px] w-[250px] h-[250px] bg-[#EA1D2C] opacity-10 blur-3xl rounded-full"></div>
+        <div className="absolute bottom-[-120px] left-[-100px] w-[300px] h-[300px] bg-[#F59E0B] opacity-10 blur-3xl rounded-full"></div>
+
+        <div className="relative z-10 w-full max-w-sm bg-white/80 backdrop-blur-2xl rounded-3xl border border-white/40 shadow-[0_20px_60px_rgba(0,0,0,0.12)] p-10 flex flex-col gap-6 animate-in fade-in slide-in-from-right duration-700">
+          
+          <div className="absolute inset-x-0 top-0 h-[4px] bg-gradient-to-r from-[#EA1D2C] via-[#F59E0B] to-[#EA1D2C] rounded-t-3xl"></div>
+
+          {activeView === 'forgot' && (
+            <button 
+              type="button"
+              onClick={() => setActiveView('login')}
+              className="absolute top-6 left-6 text-gray-400 hover:text-[#EA1D2C] transition-all hover:-translate-x-1 duration-300 z-50"
+              title="Volver al inicio"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+            </button>
+          )}
+
+          <div className="flex lg:hidden justify-center">
+            <div className="relative">
+              <div className="absolute inset-0 bg-[#EA1D2C] opacity-20 blur-2xl rounded-full"></div>
+              {/* SOLUCIÓN 2: w-auto h-auto agregado en el className */}
+              <Image
+                src={activeLogo}
+                alt="SaborExpress"
+                width={260}
+                height={220}
+                className="relative object-contain w-auto h-auto drop-shadow-[0_0_25px_rgba(234,29,44,0.25)]"
+              />
+            </div>
+          </div>
+
+          {activeView === 'login' ? (
+            <form onSubmit={onSubmit} className="flex flex-col gap-6 w-full animate-in fade-in zoom-in duration-300">
+              <div className="text-center">
+                <h1 className="text-5xl font-extrabold leading-tight text-[#111827] uppercase">
+                  {t('login.title1')}
+                  <br />
+                  <span className="text-[#EA1D2C]">
+                    {t('login.title2')}
+                  </span>
+                </h1>
+                <p className="text-sm text-gray-500 mt-4 leading-relaxed">
+                  {t('login.subtitle')}
+                </p>
+              </div>
+
+              <div className="space-y-5">
+                <Input
+                  label={t('login.email')}
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="border-[#E5E7EB] bg-white focus:ring-[#EA1D2C] focus:border-[#EA1D2C] transition-all duration-300"
+                  required
+                />
+
+                <div className="space-y-1">
+                  <Input
+                    label={t('login.password')}
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="border-[#E5E7EB] bg-white focus:ring-[#EA1D2C] focus:border-[#EA1D2C] transition-all duration-300"
+                    required
+                  />
+                  <div className="flex justify-end pt-1 ">
+                    <button 
+                      type="button" 
+                      onClick={() => setActiveView('forgot')}
+                      className="text-xs text-[#EA1D2C] hover:underline font-medium transition-all"
+                    >
+                      {t('login.forgot_password', '¿Olvidaste tu contraseña?')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <Button
+                type="submit"
+                isLoading={loading}
+                className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold py-6 rounded-2xl transition-all duration-300 shadow-lg shadow-red-500/20 hover:shadow-red-500/40 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                {t('login.submit')}
+              </Button>
+            </form>
+          ) : (
+            <ForgotPasswordFlow 
+              onNotify={(msg, type) => {
+                setModal({ isOpen: true, message: msg, type: type });
+              }}
+              onSuccess={(msg) => {
+                setModal({ isOpen: true, message: msg, type: 'success' });
+                setActiveView('login');
+              }} 
+            />
+          )}
+
+        </div>
+      </div>
+
+      <NotificationModal
+        isOpen={modal.isOpen}
+        message={modal.message}
+        type={modal.type}
+        onClose={() => setModal({ ...modal, isOpen: false })}
+      />
+    </div>
+  );
+};
+
+===== app\login\page.tsx =====
+import  LoginView  from '@/features/auth/views/login-view';
+
+export default function LoginPage() {
+  return <LoginView />;
+}
+
+===== app\layout.tsx =====
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+import { LanguageInitializer } from "@/components/language-initializer";
+import { BackNavigationGuard } from "@/components/back-navigation-guard";
+import { AppShell } from "@/components/layout/app-shell";
+import { AuthProvider } from "@/features/auth/context/auth-context";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "Panel de Administración",
+  description: "Panel de administración de SaborExpress.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="es"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      <body className="min-h-full flex flex-col">
+        <AuthProvider>
+          <BackNavigationGuard />
+          <LanguageInitializer />
+          <AppShell>{children}</AppShell>
+        </AuthProvider>
+      </body>
+    </html>
+  );
+}
+
+
+===== app\page.tsx =====
+import { redirect } from "next/navigation";
+
+export default function Home() {
+  redirect("/login");
+}
+
+
+===== components\layout\app-shell.tsx =====
+"use client";
+
+import { useEffect } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { Sidebar } from "./sidebar";
+import { NotificationBell } from "./notification-bell";
+import { useAuth } from "@/features/auth/hooks/use-auth";
+
+const ALLOWED_WEB_ROLES = ["GERENTE", "ADMINISTRADOR"];
+
+// Rutas que NO llevan sidebar/campanita (login, etc.)
+const PUBLIC_PATHS = ["/login"];
+
+export const AppShell = ({ children }: { children: React.ReactNode }) => {
+  const { session, isAuthenticated, isHydrated, logout } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+
+  useEffect(() => {
+    if (!isHydrated || isPublicPath) return;
+
+    if (!isAuthenticated) {
+      router.replace("/login");
+      return;
+    }
+
+    const tieneAccesoWeb = session?.roles.some((r) =>
+      ALLOWED_WEB_ROLES.includes(r),
+    );
+
+    if (!tieneAccesoWeb) {
+      logout();
+      router.replace("/login");
+    }
+  }, [isHydrated, isAuthenticated, session, logout, router, isPublicPath]);
+
+  // Login y páginas públicas: sin sidebar, tal cual vienen
+  if (isPublicPath) {
+    return <>{children}</>;
+  }
+
+  const tieneAccesoWeb = session?.roles.some((r) =>
+    ALLOWED_WEB_ROLES.includes(r),
+  );
+
+  if (!isHydrated || !isAuthenticated || !tieneAccesoWeb) {
+    return null;
+  }
+
+  return (
+    <div className="flex min-h-screen bg-[#F3F4F6]">
+      <Sidebar />
+      <div className="flex-1 ml-64 flex flex-col">
+        <header className="h-16 bg-[#F3F4F6] flex items-center justify-end px-8 shrink-0">
+          <NotificationBell />
+        </header>
+        <main className="flex-1 p-8">{children}</main>
+      </div>
+    </div>
+  );
+};
+
+
+===== components\back-navigation-guard.tsx =====
+"use client";
+
+import { useEffect } from "react";
+
+
+export function BackNavigationGuard() {
+  useEffect(() => {
+    window.history.pushState(null, "", window.location.href);
+
+    const blockBack = () => {
+      window.history.pushState(null, "", window.location.href);
+    };
+
+    window.addEventListener("popstate", blockBack);
+    return () => window.removeEventListener("popstate", blockBack);
+  }, []);
+
+  return null;
+}
+
+
+===== .env.local (solo claves NEXT_PUBLIC) =====
+NEXT_PUBLIC_API_URL=https://3g350dl1-5050.use2.devtunnels.ms

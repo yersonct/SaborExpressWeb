@@ -1,6 +1,3 @@
-// Mapa central de rutas públicas (crípticas) del panel.
-// El navegador siempre muestra estas URLs, nunca el nombre real
-// de la carpeta/feature (ver rewrites en next.config.ts).
 export const ROUTES = {
   login: "/login",
   dashboard: "/p1",
@@ -10,4 +7,8 @@ export const ROUTES = {
   employees: "/p5",
   branches: "/p6",
   config: "/p7",
+  tables: "/p8",
+  schedules: "/p9",
+  deliveries: "/p10",
+  reviews: "/p11",
 } as const;

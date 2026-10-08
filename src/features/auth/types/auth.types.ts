@@ -4,9 +4,11 @@ export interface LoginCredentials {
 }
 
 export interface UserSession {
+  userId: number;
   identifier: string;
   roles: string[];
   token: string;
+  refreshToken: string;
 }
 
 
