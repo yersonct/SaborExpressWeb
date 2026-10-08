@@ -1,0 +1,99 @@
+import { http } from "@/config/api";
+import type {
+  Employee,
+  CreateEmployeePayload,
+  UpdateEmployeePayload,
+  EmployeeStatusFilter,
+} from "../types/employee.types";
+
+// Arma un FormData porque el backend recibe [FromForm] (multipart/form-data)
+function buildEmployeeFormData(
+  payload: CreateEmployeePayload | UpdateEmployeePayload,
+): FormData {
+  const formData = new FormData();
+
+  formData.append("name", payload.name);
+  if (payload.lastName) formData.append("lastName", payload.lastName);
+  if ("document" in payload && payload.document) {
+    formData.append("document", payload.document);
+  }
+  if (payload.email) formData.append("email", payload.email);
+  if (payload.phone) formData.append("phone", payload.phone);
+  if (payload.address) formData.append("address", payload.address);
+
+
+  if (payload.branchId !== undefined && payload.branchId !== null) {
+    formData.append("branchId", payload.branchId.toString());
+  }
+
+  formData.append("basePay", payload.basePay.toString());
+
+  if ("status" in payload && payload.status) {
+    formData.append("status", payload.status);
+  }
+
+  if (payload.cv) {
+    formData.append("cv", payload.cv);
+  }
+
+  return formData;
+}
+
+export const employeeService = {
+  // GET /api/Employees?estado=activo|inactivo
+  getAll: async (
+    estado: EmployeeStatusFilter = "activo",
+  ): Promise<Employee[]> => {
+    const { data } = await http.get<Employee[]>("/Employees", {
+      params: { estado },
+    });
+    return data;
+  },
+
+  // GET /api/Employees/{id}
+  getById: async (id: number): Promise<Employee> => {
+    const { data } = await http.get<Employee>(`/Employees/${id}`);
+    return data;
+  },
+
+  // POST /api/Employees (multipart/form-data)
+  // El backend devuelve el id del empleado creado + un mensaje.
+  create: async (
+    payload: CreateEmployeePayload,
+  ): Promise<{ employeeId: number; message: string }> => {
+    const formData = buildEmployeeFormData(payload);
+    const { data } = await http.post<{ employeeId: number; message: string }>(
+      "/Employees",
+      formData,
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+      },
+    );
+    return data;
+  },
+
+  // PUT /api/Employees/{id} (multipart/form-data)
+  update: async (
+    id: number,
+    payload: UpdateEmployeePayload,
+  ): Promise<Employee> => {
+    const formData = buildEmployeeFormData(payload);
+    const { data } = await http.put<Employee>(`/Employees/${id}`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data;
+  },
+
+  // DELETE /api/Employees/{id} — en realidad DESACTIVA (borrado lógico)
+  deactivate: async (id: number): Promise<void> => {
+    await http.delete(`/Employees/${id}`);
+  },
+
+  // GET /api/Employees/{id}/cv — descarga el archivo
+  downloadCv: async (id: number): Promise<Blob> => {
+    const { data } = await http.get(`/Employees/${id}/cv`, {
+      responseType: "blob",
+    });
+    return data;
+  },
+};

@@ -1,5 +1,5 @@
-import { ProductsView } from '@/features/auth/views/products-view';
+import { InventoryView } from "../../features/Products/views/inventory-view";
 
 export default function ProductsPage() {
-  return <ProductsView />;
+  return <InventoryView />;
 }

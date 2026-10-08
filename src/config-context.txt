@@ -1,0 +1,1048 @@
+﻿
+==================== .\features\Configurations\views\config-view.tsx ====================
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import { useAuth } from "@/features/auth/hooks/use-auth";
+import { useRouter } from "next/navigation";
+import { useMyBranch } from "@/features/branches/hooks/use-my-branch";
+import { useBranchOperationalSettings } from "@/features/Configurations/hooks/use-branch-operational-settings";
+import { useUserSettings } from "@/features/Configurations/hooks/use-user-settings";
+import { getInitials } from "@/features/Configurations/utils/initials";
+import { useMyProfile } from "@/features/Configurations/hooks/use-my-profile";
+import type { UpdateBranchOperationalSettingsPayload } from "@/features/Configurations/types/branch-operational-settings.types";
+import { useBranches } from "@/features/branches/hooks/use-branches";
+import { QRCodeCanvas } from "qrcode.react";
+
+const inputClass =
+  "w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-[#111827] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#111827] focus:border-transparent transition-all";
+
+export const ConfigView = () => {
+  const [activeTab, setActiveTab] = useState("perfil");
+  const { logout, session } = useAuth();
+  const router = useRouter();
+  const qrRef = useRef<HTMLDivElement>(null);
+
+  const isGerente = session?.roles?.includes("GERENTE") ?? false;
+  const { branches, updateBranch } = useBranches(isGerente);
+
+  // Sede que el Gerente estÃ¡ configurando en la pestaÃ±a "Ajustes del
+  // Restaurante". El Administrador no elige nada, siempre es la suya.
+  const [settingsBranchId, setSettingsBranchId] = useState<number | "">("");
+
+  const {
+    branch: myBranch,
+    loading: branchLoading,
+    saving,
+    error: branchError,
+    updateMyBranch,
+  } = useMyBranch(!isGerente);
+
+  // Sede efectiva del formulario "Mi Sede": la propia si es Administrador,
+  // o la que el Gerente haya elegido en el selector.
+  const branch = isGerente
+    ? (branches.find((b) => b.id === settingsBranchId) ?? null)
+    : myBranch;
+
+  // "" = Todas las sedes (el QR no lleva branchId)
+  const [qrBranchId, setQrBranchId] = useState<number | "">("");
+
+    // Gerente: la que elija (o ninguna = todas). Administrador: la suya.
+    const effectiveBranchId = isGerente
+      ? qrBranchId === ""
+        ? null
+        : qrBranchId
+      : (branch?.id ?? null);
+    const effectiveBranchName = isGerente
+      ? qrBranchId === ""
+        ? "todas"
+        : (branches.find((b) => b.id === qrBranchId)?.name ?? "sede")
+      : (branch?.name ?? "sede");
+
+
+
+  const {
+    settings: opSettings,
+    loading: settingsLoading,
+    saving: savingAllSettings,
+    error: settingsError,
+    save: saveOpSettings,
+  } = useBranchOperationalSettings(branch?.id ?? null);
+  const [draft, setDraft] =
+    useState<UpdateBranchOperationalSettingsPayload | null>(null);
+  const [settingsSavedMsg, setSettingsSavedMsg] = useState("");
+
+  // Cuando llegan (o se guardan) los ajustes, el borrador se reinicia con ellos
+  useEffect(() => {
+    if (opSettings) {
+      const { branchId, updatedAt, isDefault, ...editable } = opSettings;
+      setDraft(editable);
+    } else {
+      setDraft(null);
+    }
+  }, [opSettings]);
+
+  const handleSaveAllSettings = async () => {
+    if (!draft) return;
+    setSettingsSavedMsg("");
+    try {
+      await saveOpSettings(draft);
+      setSettingsSavedMsg("Ajustes guardados correctamente");
+    } catch {
+      // el error ya queda en settingsError
+    }
+  };
+
+  const patch = (changes: Partial<UpdateBranchOperationalSettingsPayload>) =>
+    setDraft((prev) => (prev ? { ...prev, ...changes } : prev));
+
+
+
+  const [name, setName] = useState("");
+  const [address, setAddress] = useState("");
+  const [phone, setPhone] = useState("");
+  const [status, setStatus] = useState(true);
+  const [savedMsg, setSavedMsg] = useState("");
+
+  // Datos reales de la sesiÃ³n â€” nada quemado. `identifier` es el correo con
+  // el que se iniciÃ³ sesiÃ³n (asÃ­ se guarda en el login). `roles` viene del
+  // JWT tal cual, asÃ­ que se muestra en mayÃºsculas del backend.
+  const userEmail = session?.identifier ?? "";
+  const userRole = session?.roles?.join(", ") ?? "";
+
+  const {
+    profile,
+    saving: savingProfile,
+    error: profileError,
+    save: saveProfile,
+  } = useMyProfile(!!session);
+
+  const fullName = profile
+    ? `${profile.name} ${profile.lastName ?? ""}`.trim()
+    : null;
+  const initials = getInitials(fullName, userEmail);
+
+  const [pName, setPName] = useState("");
+  const [pLastName, setPLastName] = useState("");
+  const [pPhone, setPPhone] = useState("");
+  const [profileSavedMsg, setProfileSavedMsg] = useState("");
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+
+  const resetProfileFields = () => {
+    if (profile) {
+      setPName(profile.name);
+      setPLastName(profile.lastName ?? "");
+      setPPhone(profile.phone ?? "");
+    }
+  };
+
+  useEffect(() => {
+    resetProfileFields();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile]);
+
+  const handleStartEdit = () => {
+    setProfileSavedMsg("");
+    setIsEditingProfile(true);
+  };
+
+  const handleCancelEdit = () => {
+    resetProfileFields();
+    setProfileSavedMsg("");
+    setIsEditingProfile(false);
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isEditingProfile) return;
+    setProfileSavedMsg("");
+    if (!pName.trim()) {
+      alert("El nombre no puede estar vacÃ­o.");
+      return;
+    }
+    try {
+      await saveProfile({
+        name: pName.trim(),
+        lastName: pLastName.trim() || undefined,
+        phone: pPhone.trim() || undefined,
+      });
+      setProfileSavedMsg("Perfil actualizado correctamente");
+      setIsEditingProfile(false);
+    } catch {
+      // el error ya queda en profileError
+    }
+  };
+
+  // URL pÃºblica de la carta digital (usa la variable de entorno si existe,
+  // o cae al origen actual del navegador como respaldo).
+  const menuUrl =
+    (process.env.NEXT_PUBLIC_APP_URL ||
+      (typeof window !== "undefined" ? window.location.origin : "")) +
+    "/letter" +
+    (effectiveBranchId ? `?branchId=${effectiveBranchId}` : "");
+
+  useEffect(() => {
+    if (branch) {
+      setName(branch.name);
+      setAddress(branch.address ?? "");
+      setPhone(branch.phone ?? "");
+      setStatus(branch.status);
+    }
+  }, [branch]);
+
+  const handleSaveBranch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavedMsg("");
+
+    if (!name.trim()) {
+      alert(
+        "El nombre de la sede no puede estar vacÃ­o. Espera a que cargue la informaciÃ³n o vuelve a intentar.",
+      );
+      return;
+    }
+
+    try {
+      if (isGerente) {
+        if (!branch) return;
+        await updateBranch(branch.id, { name, address, phone, status });
+      } else {
+        await updateMyBranch({ name, address, phone, status });
+      }
+      setSavedMsg("Sede actualizada correctamente");
+    } catch {
+      // el error ya queda en branchError
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
+  };
+
+  const handleDownloadQr = () => {
+    const canvas = qrRef.current?.querySelector("canvas");
+    if (!canvas) return;
+    const url = canvas.toDataURL("image/png");
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `carta-digital-qr-${effectiveBranchName}.png`;
+    link.click();
+  };
+
+  return (
+    <>
+      <div className="flex flex-col h-full space-y-6 pb-10">
+        <div className="border-b border-gray-200 pb-6">
+          <h1 className="text-3xl font-bold text-[#111827] tracking-tight">
+            ConfiguraciÃ³n del Sistema
+          </h1>
+          <p className="text-gray-500 mt-1">
+            Administra tu perfil, parÃ¡metros del restaurante y seguridad de la
+            cuenta.
+          </p>
+        </div>
+
+        <div className="flex flex-col md:flex-row gap-8 pt-2">
+          <div className="w-full md:w-64 flex-shrink-0">
+            <nav className="flex flex-col gap-2">
+              <button
+                onClick={() => setActiveTab("perfil")}
+                className={`text-left px-4 py-3 rounded-xl text-sm font-bold transition-colors ${activeTab === "perfil" ? "bg-[#111827] text-white shadow-md" : "text-gray-600 hover:bg-gray-100"}`}
+              >
+                ðŸ‘¤ Perfil del Administrador
+              </button>
+              <button
+                onClick={() => setActiveTab("negocio")}
+                className={`text-left px-4 py-3 rounded-xl text-sm font-bold transition-colors ${activeTab === "negocio" ? "bg-[#111827] text-white shadow-md" : "text-gray-600 hover:bg-gray-100"}`}
+              >
+                ðŸª Ajustes del Restaurante
+              </button>
+              <button
+                onClick={() => setActiveTab("carta")}
+                className={`text-left px-4 py-3 rounded-xl text-sm font-bold transition-colors ${activeTab === "carta" ? "bg-[#111827] text-white shadow-md" : "text-gray-600 hover:bg-gray-100"}`}
+              >
+                ðŸ”— Carta Digital (QR)
+              </button>
+              <button
+                onClick={() => setActiveTab("seguridad")}
+                className={`text-left px-4 py-3 rounded-xl text-sm font-bold transition-colors ${activeTab === "seguridad" ? "bg-[#111827] text-white shadow-md" : "text-gray-600 hover:bg-gray-100"}`}
+              >
+                ðŸ›¡ï¸ Seguridad y Accesos
+              </button>
+            </nav>
+          </div>
+          <div className="flex-1">
+            {activeTab === "perfil" && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 animate-fade-in">
+                <h2 className="text-xl font-bold text-[#111827] mb-6">
+                  InformaciÃ³n Personal
+                </h2>
+
+                <div className="flex items-center gap-6 mb-8 pb-8 border-b border-gray-100">
+                  <div className="w-20 h-20 rounded-2xl bg-[#111827] flex items-center justify-center shadow-inner flex-shrink-0">
+                    <span className="text-2xl font-bold text-white tracking-wide select-none">
+                      {initials}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="font-bold text-[#111827]">
+                      {fullName || userEmail}
+                    </p>
+                    <p className="text-xs text-gray-500">{userRole}</p>
+                  </div>
+                </div>
+
+                <form className="space-y-5" onSubmit={handleSaveProfile}>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        Nombre
+                      </label>
+                      <input
+                        type="text"
+                        value={pName}
+                        onChange={(e) => setPName(e.target.value)}
+                        disabled={!profile || !isEditingProfile}
+                        placeholder={profile ? "" : "Sin perfil de empleado"}
+                        className={`${inputClass} ${!profile || !isEditingProfile ? "bg-gray-50 text-gray-500" : ""}`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        Apellido
+                      </label>
+                      <input
+                        type="text"
+                        value={pLastName}
+                        onChange={(e) => setPLastName(e.target.value)}
+                        disabled={!profile || !isEditingProfile}
+                        className={`${inputClass} ${!profile || !isEditingProfile ? "bg-gray-50 text-gray-500" : ""}`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        Correo ElectrÃ³nico
+                      </label>
+                      <input
+                        type="email"
+                        value={userEmail}
+                        disabled
+                        className={`${inputClass} bg-gray-50`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        TelÃ©fono de Contacto
+                      </label>
+                      <input
+                        type="tel"
+                        value={pPhone}
+                        onChange={(e) => setPPhone(e.target.value)}
+                        disabled={!profile || !isEditingProfile}
+                        className={`${inputClass} ${!profile || !isEditingProfile ? "bg-gray-50 text-gray-500" : ""}`}
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        Rol
+                      </label>
+                      <input
+                        type="text"
+                        value={userRole}
+                        disabled
+                        className="w-full px-4 py-2.5 rounded-xl border border-gray-100 text-sm bg-gray-100 text-gray-500 cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+
+                  {profileError && (
+                    <p className="text-sm text-red-600">{profileError}</p>
+                  )}
+                  {profileSavedMsg && (
+                    <p className="text-sm text-green-600 font-medium">
+                      {profileSavedMsg}
+                    </p>
+                  )}
+
+                  {profile && (
+                    <div className="flex justify-end gap-3">
+                      {!isEditingProfile ? (
+                        <button
+                          type="button"
+                          onClick={handleStartEdit}
+                          className="bg-[#111827] hover:bg-gray-800 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm"
+                        >
+                          Editar
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleCancelEdit}
+                            disabled={savingProfile}
+                            className="bg-white border border-gray-200 hover:bg-gray-50 text-[#111827] font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={savingProfile}
+                            className="bg-[#111827] hover:bg-gray-800 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
+                          >
+                            {savingProfile ? "Guardando..." : "Guardar cambios"}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </form>
+              </div>
+            )}
+
+            {activeTab === "negocio" && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 animate-fade-in">
+                <h2 className="text-xl font-bold text-[#111827] mb-6">
+                  {isGerente ? "ConfiguraciÃ³n por Sede" : "Mi Sede"}
+                </h2>
+
+                {isGerente && (
+                  <div className="mb-6">
+                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                      Selecciona la sede a configurar
+                    </label>
+                    <select
+                      value={settingsBranchId}
+                      onChange={(e) =>
+                        setSettingsBranchId(
+                          e.target.value ? Number(e.target.value) : "",
+                        )
+                      }
+                      className={inputClass}
+                    >
+                      <option value="">Selecciona una sede...</option>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {isGerente && !branch ? (
+                  <p className="text-sm text-gray-400 py-4">
+                    Elige una sede arriba para ver y editar su configuraciÃ³n.
+                  </p>
+                ) : branchLoading ? (
+                  <p className="text-sm text-gray-500">
+                    Cargando datos de la sede...
+                  </p>
+                ) : branchError ? (
+                  <p className="text-sm text-red-600">{branchError}</p>
+                ) : (
+                  <form className="space-y-6" onSubmit={handleSaveBranch}>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                          Nombre de la Sede
+                        </label>
+                        <input
+                          type="text"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                          TelÃ©fono
+                        </label>
+                        <input
+                          type="text"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                          DirecciÃ³n
+                        </label>
+                        <input
+                          type="text"
+                          value={address}
+                          onChange={(e) => setAddress(e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
+                      <div>
+                        <h4 className="font-bold text-[#111827] text-sm">
+                          Estado de la Sede
+                        </h4>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {isGerente
+                            ? "Activa o inactiva dentro del sistema."
+                            : "Solo el Gerente puede activar o desactivar la sede."}
+                        </p>
+                      </div>
+                      <label
+                        className={`relative inline-flex items-center ${
+                          isGerente
+                            ? "cursor-pointer"
+                            : "cursor-not-allowed opacity-60"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={status}
+                          disabled={!isGerente}
+                          onChange={(e) => setStatus(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+                      </label>
+                    </div>
+
+                    {savedMsg && (
+                      <p className="text-sm text-green-600 font-medium">
+                        {savedMsg}
+                      </p>
+                    )}
+
+                    <div className="pt-4 flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={saving}
+                        className="bg-[#111827] hover:bg-gray-800 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
+                      >
+                        {saving ? "Guardando..." : "Actualizar Sede"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {branch && (
+                  <div className="mt-8 pt-8 border-t border-gray-100">
+                    <h3 className="text-lg font-bold text-[#111827] mb-1">
+                      Ajustes Operativos
+                    </h3>
+                    <p className="text-xs text-gray-500 mb-6">
+                      Horarios, impuestos y tarifas especÃ­ficas de esta sede.
+                    </p>
+
+                    {settingsLoading || !draft ? (
+                      <div className="space-y-3">
+                        {[1, 2, 3].map((i) => (
+                          <div
+                            key={i}
+                            className="h-12 rounded-xl bg-gray-100 animate-pulse"
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        {settingsError && (
+                          <p className="text-sm text-red-600 mb-4">
+                            {settingsError}
+                          </p>
+                        )}
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                          {(
+                            [
+                              ["openingTime", "Hora de apertura", "time"],
+                              ["closingTime", "Hora de cierre", "time"],
+                              ["taxRate", "IVA (%)", "number"],
+                              ["suggestedTipPercent", "Propina sugerida (%)", "number"],
+                              ["deliveryFee", "Tarifa de domicilio", "number"],
+                              ["minOrderAmount", "Pedido mÃ­nimo", "number"],
+                              ["deliveryRadiusKm", "Radio de entrega (km)", "number"],
+                            ] as const
+                          ).map(([field, label, type]) => (
+                            <div key={field}>
+                              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                                {label}
+                              </label>
+                              <input
+                                type={type}
+                                step={type === "number" ? "0.01" : undefined}
+                                min={type === "number" ? 0 : undefined}
+                                value={draft[field]}
+                                onChange={(e) =>
+                                  patch({
+                                    [field]:
+                                      type === "number"
+                                        ? Number(e.target.value)
+                                        : e.target.value,
+                                  } as Partial<UpdateBranchOperationalSettingsPayload>)
+                                }
+                                className={inputClass}
+                              />
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {(
+                            [
+                              ["acceptsDelivery", "Acepta domicilios"],
+                              ["acceptsDineIn", "Acepta consumo en sitio"],
+                            ] as const
+                          ).map(([field, label]) => (
+                            <label
+                              key={field}
+                              className="flex items-center gap-3 text-sm font-medium text-[#111827]"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={draft[field]}
+                                onChange={(e) =>
+                                  patch({
+                                    [field]: e.target.checked,
+                                  } as Partial<UpdateBranchOperationalSettingsPayload>)
+                                }
+                                className="w-4 h-4"
+                              />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+
+                        <div className="pt-6 flex items-center justify-between">
+                          {settingsSavedMsg && (
+                            <p className="text-sm text-green-600 font-medium">
+                              {settingsSavedMsg}
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={handleSaveAllSettings}
+                            disabled={savingAllSettings}
+                            className="ml-auto bg-[#111827] hover:bg-gray-800 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
+                          >
+                            {savingAllSettings
+                              ? "Guardando..."
+                              : "Guardar Ajustes Operativos"}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === "carta" && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 animate-fade-in">
+                <h2 className="text-xl font-bold text-[#111827] mb-2">
+                  CÃ³digo QR de la Carta Digital
+                </h2>
+                <p className="text-sm text-gray-500 mb-6">
+                  Imprime este cÃ³digo y colÃ³calo en cada mesa. Los clientes lo
+                  escanean con su celular para ver el menÃº del restaurante.
+                </p>
+
+                {isGerente && (
+                  <div className="mb-2">
+                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                      Sede del QR
+                    </label>
+                    <select
+                      value={qrBranchId}
+                      onChange={(e) =>
+                        setQrBranchId(
+                          e.target.value ? Number(e.target.value) : "",
+                        )
+                      }
+                      className={inputClass}
+                    >
+                      <option value="">Todas las sedes</option>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="flex flex-col items-center gap-6 py-6">
+                  <div
+                    ref={qrRef}
+                    className="p-6 bg-white border-2 border-gray-100 rounded-2xl shadow-sm"
+                  >
+                    <QRCodeCanvas value={menuUrl} size={220} level="M" />
+                  </div>
+
+                  <p className="text-xs text-gray-400 break-all text-center max-w-sm">
+                    {menuUrl}
+                  </p>
+
+                  <button
+                    onClick={handleDownloadQr}
+                    className="bg-[#111827] hover:bg-gray-800 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm"
+                  >
+                    Descargar QR (PNG)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "seguridad" && (
+              <div className="space-y-6 animate-fade-in">
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
+                  <h2 className="text-xl font-bold text-[#111827] mb-6">
+                    Actualizar ContraseÃ±a
+                  </h2>
+                  <form
+                    className="space-y-4 max-w-md"
+                    onSubmit={(e) => e.preventDefault()}
+                  >
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        ContraseÃ±a Actual
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        Nueva ContraseÃ±a
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div className="pt-2">
+                      <button className="bg-white border border-gray-200 hover:bg-gray-50 text-[#111827] font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm">
+                        Actualizar
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                <div className="bg-red-50/50 rounded-2xl border border-red-100 p-8">
+                  <h2 className="text-lg font-bold text-red-800 mb-2">
+                    Zona de Control de SesiÃ³n
+                  </h2>
+                  <p className="text-sm text-gray-600 mb-6">
+                    Al cerrar sesiÃ³n requerirÃ¡s ingresar nuevamente tu correo y
+                    contraseÃ±a para acceder al panel administrativo.
+                  </p>
+
+                  <div className="flex gap-4">
+                    <button
+                      onClick={handleLogout}
+                      className="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm flex items-center gap-2"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                        <polyline points="16 17 21 12 16 7"></polyline>
+                        <line x1="21" y1="12" x2="9" y2="12"></line>
+                      </svg>
+                      Cerrar SesiÃ³n
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+
+==================== .\features\Configurations\hooks\use-branch-operational-settings.ts ====================
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { branchOperationalSettingsService } from "../services/branch-operational-settings.service";
+import type {
+  BranchOperationalSettings,
+  UpdateBranchOperationalSettingsPayload,
+} from "../types/branch-operational-settings.types";
+
+export function useBranchOperationalSettings(branchId: number | null) {
+  const [settings, setSettings] = useState<BranchOperationalSettings | null>(
+    null,
+  );
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (branchId == null) {
+      setSettings(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      setSettings(await branchOperationalSettingsService.get(branchId));
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo cargar la configuraciÃ³n de la sede",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [branchId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const save = useCallback(
+    async (payload: UpdateBranchOperationalSettingsPayload) => {
+      if (branchId == null) return;
+      setSaving(true);
+      setError(null);
+      try {
+        const updated = await branchOperationalSettingsService.update(
+          branchId,
+          payload,
+        );
+        setSettings(updated);
+        return updated;
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo guardar la configuraciÃ³n",
+        );
+        throw err;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [branchId],
+  );
+
+  return { settings, loading, saving, error, save, reload: load };
+}
+
+
+==================== .\features\Configurations\hooks\use-my-profile.ts ====================
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import {
+  employeeMeService,
+  type MyProfile,
+  type UpdateMyProfilePayload,
+} from "../services/employee-me.service";
+
+const SESSION_KEY = "sabor-express-session";
+
+// El endpoint /Employees/me responde 401 si el token no trae EmployeeId, y el
+// interceptor de axios cerrarÃ­a la sesiÃ³n. Por eso se verifica antes de llamar.
+function tokenHasEmployeeId(): boolean {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    const token = raw ? JSON.parse(raw)?.token : null;
+    if (!token) return false;
+    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const json = JSON.parse(decodeURIComponent(escape(atob(payload))));
+    return Boolean(json.EmployeeId);
+  } catch {
+    return false;
+  }
+}
+
+export function useMyProfile(enabled: boolean) {
+  const [profile, setProfile] = useState<MyProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled || !tokenHasEmployeeId()) {
+      setLoading(false);
+      return;
+    }
+    employeeMeService
+      .get()
+      .then(setProfile)
+      .catch((err) =>
+        setError(
+          err instanceof Error ? err.message : "No se pudo cargar tu perfil",
+        ),
+      )
+      .finally(() => setLoading(false));
+  }, [enabled]);
+
+  const save = useCallback(
+    async (payload: UpdateMyProfilePayload) => {
+      setSaving(true);
+      setError(null);
+      try {
+        const updated = await employeeMeService.update({
+          // vehicle/plate se reenvÃ­an tal cual para no borrarlos al guardar
+          vehicle: profile?.vehicle ?? undefined,
+          plate: profile?.plate ?? undefined,
+          ...payload,
+        });
+        setProfile(updated);
+        return updated;
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "No se pudo guardar tu perfil",
+        );
+        throw err;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [profile],
+  );
+
+  return { profile, loading, saving, error, save };
+}
+
+
+==================== .\features\Configurations\services\branch-operational-settings.service.ts ====================
+import { http } from "@/config/api";
+import type {
+  BranchOperationalSettings,
+  UpdateBranchOperationalSettingsPayload,
+} from "../types/branch-operational-settings.types";
+
+export const branchOperationalSettingsService = {
+  // GET /api/branch-settings/{branchId}
+  get: async (branchId: number): Promise<BranchOperationalSettings> => {
+    const { data } = await http.get<BranchOperationalSettings>(
+      `/branch-settings/${branchId}`,
+    );
+    return data;
+  },
+
+  // PUT /api/branch-settings/{branchId}
+  update: async (
+    branchId: number,
+    payload: UpdateBranchOperationalSettingsPayload,
+  ): Promise<BranchOperationalSettings> => {
+    const { data } = await http.put<BranchOperationalSettings>(
+      `/branch-settings/${branchId}`,
+      payload,
+    );
+    return data;
+  },
+};
+
+
+==================== .\features\Configurations\types\branch-operational-settings.types.ts ====================
+
+==================== .\features\branches\hooks\use-my-branch.ts ====================
+
+==================== .\features\branches\services\branch.service.ts ====================
+
+==================== .\features\branches\types\branch.types.ts ====================
+
+==================== .\components\ui\button.tsx ====================
+"use client";
+
+import React, { useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
+
+interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label?: string;
+  error?: string;
+}
+
+export const Input = ({
+  label,
+  error,
+  className = "",
+  type = "text",
+  ...props
+}: InputProps) => {
+  const [showPassword, setShowPassword] = useState(false);
+
+  const isPassword = type === "password";
+  const resolvedType = isPassword ? (showPassword ? "password" : "text") : type;
+
+  return (
+    <div className="flex flex-col gap-2 w-full">
+      {label && (
+        <label className="text-sm font-medium text-[#111827]">{label}</label>
+      )}
+
+      <div className="relative w-full">
+        <input
+          type={resolvedType}
+          className={`
+            w-full
+            px-4
+            py-3
+            ${isPassword ? "pr-12" : ""}
+            rounded-xl
+            border
+            bg-white
+            text-[#111827]
+            placeholder:text-gray-400
+            transition-all
+            duration-300
+            outline-none
+
+            ${
+              error
+                ? "border-[#EF4444] focus:ring-2 focus:ring-[#EF4444]"
+                : "border-[#E5E7EB] focus:ring-2 focus:ring-[#EA1D2C] focus:border-[#EA1D2C]"
+            }
+
+            hover:border-[#d1d5db]
+
+            ${className}
+          `}
+          {...props}
+        />
+
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setShowPassword((prev) => !prev)}
+            tabIndex={-1}
+            aria-label={
+              showPassword ?  "Mostrar contraseÃ±a" :"Ocultar contraseÃ±a" 
+            }
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#EA1D2C] transition-colors"
+          >
+            {showPassword ? (
+              <EyeOff className="h-5 w-5" />
+            ) : (
+              <Eye className="h-5 w-5" />
+            )}
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <span className="text-sm text-[#EF4444] font-medium">{error}</span>
+      )}
+    </div>
+  );
+};
+

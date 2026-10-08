@@ -1,0 +1,1311 @@
+﻿
+===== .\features\Configurations\hooks\use-branch-configuration.ts =====
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { configurationService } from "../services/configuration.service";
+import { SETTING_DEFINITIONS } from "../types/configuration.types";
+import type { BranchConfiguration } from "../types/configuration.types";
+
+export function useBranchConfiguration(branchId: number | null) {
+  const [settings, setSettings] = useState<BranchConfiguration[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (branchId == null) {
+      setSettings([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await configurationService.getByBranch(branchId);
+      setSettings(data);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo cargar la configuraciÃ³n de la sede",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [branchId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const getValue = useCallback(
+    (key: string) => settings.find((s) => s.key === key)?.value ?? "",
+    [settings],
+  );
+
+  // Decide POST vs PUT automÃ¡ticamente: si la clave ya existe para esta
+  // sede, actualiza; si no, la crea. AsÃ­ el formulario no tiene que saber
+  // cuÃ¡les claves ya tienen fila en la BD y cuÃ¡les no.
+  const saveSetting = useCallback(
+    async (key: string, value: string, dataType: string) => {
+      if (branchId == null) return;
+      setSavingKey(key);
+      try {
+        const existing = settings.find((s) => s.key === key);
+        if (existing) {
+          const updated = await configurationService.update(existing.id, {
+            value,
+            dataType,
+            description: existing.description ?? undefined,
+          });
+          setSettings((prev) =>
+            prev.map((s) => (s.id === updated.id ? updated : s)),
+          );
+        } else {
+          const definition = SETTING_DEFINITIONS.find((d) => d.key === key);
+          const created = await configurationService.create({
+            branchId,
+            key,
+            value,
+            dataType,
+            description: definition?.label,
+          });
+          setSettings((prev) => [...prev, created]);
+        }
+      } finally {
+        setSavingKey(null);
+      }
+    },
+    [branchId, settings],
+  );
+
+  return {
+    settings,
+    loading,
+    error,
+    savingKey,
+    getValue,
+    saveSetting,
+    reload: load,
+  };
+}
+
+
+===== .\features\Configurations\services\configuration.service.ts =====
+import { http } from "@/config/api";
+import type {
+  BranchConfiguration,
+  CreateConfigurationPayload,
+  UpdateConfigurationPayload,
+} from "../types/configuration.types";
+
+export const configurationService = {
+  // GET /api/Configurations/branch/{branchId}
+  getByBranch: async (branchId: number): Promise<BranchConfiguration[]> => {
+    const { data } = await http.get<BranchConfiguration[]>(
+      `/Configurations/branch/${branchId}`,
+    );
+    return data;
+  },
+
+  // POST /api/Configurations
+  create: async (
+    payload: CreateConfigurationPayload,
+  ): Promise<BranchConfiguration> => {
+    const { data } = await http.post<BranchConfiguration>(
+      "/Configurations",
+      payload,
+    );
+    return data;
+  },
+
+  // PUT /api/Configurations/{id}
+  update: async (
+    id: number,
+    payload: UpdateConfigurationPayload,
+  ): Promise<BranchConfiguration> => {
+    const { data } = await http.put<BranchConfiguration>(
+      `/Configurations/${id}`,
+      payload,
+    );
+    return data;
+  },
+};
+
+
+===== .\features\Configurations\types\configuration.types.ts =====
+export interface BranchConfiguration {
+  id: number;
+  branchId: number | null;
+  branchName: string | null;
+  key: string;
+  value: string;
+  dataType: "text" | "number" | "decimal" | "time" | "boolean";
+  description: string | null;
+  updatedAt: string;
+}
+
+export interface CreateConfigurationPayload {
+  branchId: number | null;
+  key: string;
+  value: string;
+  dataType: string;
+  description?: string;
+}
+
+export interface UpdateConfigurationPayload {
+  value: string;
+  dataType: string;
+  description?: string;
+}
+
+// CatÃ¡logo de ajustes que soporta la pantalla. Agregar/quitar una fila aquÃ­
+// es todo lo que hace falta para cambiar quÃ© se muestra â€” no requiere tocar
+// el backend, porque BranchSetting es clave-valor libre.
+export const SETTING_DEFINITIONS = [
+  { key: "OPENING_TIME", label: "Hora de apertura", dataType: "time" as const },
+  { key: "CLOSING_TIME", label: "Hora de cierre", dataType: "time" as const },
+  { key: "TaxRate", label: "IVA (%)", dataType: "decimal" as const },
+  {
+    key: "DeliveryFee",
+    label: "Tarifa de domicilio",
+    dataType: "decimal" as const,
+  },
+  {
+    key: "SuggestedTip",
+    label: "Propina sugerida (%)",
+    dataType: "decimal" as const,
+  },
+] as const;
+
+
+===== .\features\Configurations\views\config-view.tsx =====
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import { useAuth } from "@/features/auth/hooks/use-auth";
+import { useRouter } from "next/navigation";
+import { useMyBranch } from "@/features/branches/hooks/use-my-branch";
+import { useBranchConfiguration } from "@/features/Configurations/hooks/use-branch-configuration";
+import { SETTING_DEFINITIONS } from "@/features/Configurations/types/configuration.types";
+import { useBranches } from "@/features/branches/hooks/use-branches";
+import { QRCodeCanvas } from "qrcode.react";
+
+const inputClass =
+  "w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-[#111827] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#111827] focus:border-transparent transition-all";
+
+export const ConfigView = () => {
+  const [activeTab, setActiveTab] = useState("perfil");
+  const { logout, session } = useAuth();
+  const router = useRouter();
+  const qrRef = useRef<HTMLDivElement>(null);
+
+  const isGerente = session?.roles?.includes("GERENTE") ?? false;
+  const { branches, updateBranch } = useBranches(isGerente);
+
+  // Sede que el Gerente estÃ¡ configurando en la pestaÃ±a "Ajustes del
+  // Restaurante". El Administrador no elige nada, siempre es la suya.
+  const [settingsBranchId, setSettingsBranchId] = useState<number | "">("");
+
+  const {
+    branch: myBranch,
+    loading: branchLoading,
+    saving,
+    error: branchError,
+    updateMyBranch,
+  } = useMyBranch(!isGerente);
+
+  // Sede efectiva del formulario "Mi Sede": la propia si es Administrador,
+  // o la que el Gerente haya elegido en el selector.
+  const branch = isGerente
+    ? (branches.find((b) => b.id === settingsBranchId) ?? null)
+    : myBranch;
+
+  // "" = Todas las sedes (el QR no lleva branchId)
+  const [qrBranchId, setQrBranchId] = useState<number | "">("");
+
+    // Gerente: la que elija (o ninguna = todas). Administrador: la suya.
+    const effectiveBranchId = isGerente
+      ? qrBranchId === ""
+        ? null
+        : qrBranchId
+      : (branch?.id ?? null);
+    const effectiveBranchName = isGerente
+      ? qrBranchId === ""
+        ? "todas"
+        : (branches.find((b) => b.id === qrBranchId)?.name ?? "sede")
+      : (branch?.name ?? "sede");
+
+  const {
+    loading: settingsLoading,
+    error: settingsError,
+    savingKey,
+    getValue,
+    saveSetting,
+  } = useBranchConfiguration(branch?.id ?? null);
+  const [settingsDraft, setSettingsDraft] = useState<Record<string, string>>(
+    {},
+  );
+  const [settingsSavedMsg, setSettingsSavedMsg] = useState("");
+
+  const [savingAllSettings, setSavingAllSettings] = useState(false);
+
+  const handleSaveAllSettings = async () => {
+    setSettingsSavedMsg("");
+    setSavingAllSettings(true);
+    try {
+      // Solo guarda los campos que el usuario realmente tocÃ³ (tienen
+      // borrador distinto al valor actual), no todos a la fuerza.
+      const changed = SETTING_DEFINITIONS.filter((def) => {
+        const draftValue = settingsDraft[def.key];
+        return draftValue !== undefined && draftValue !== getValue(def.key);
+      });
+
+      if (changed.length === 0) {
+        setSettingsSavedMsg("No hay cambios para guardar");
+        return;
+      }
+
+      for (const def of changed) {
+        await saveSetting(def.key, settingsDraft[def.key], def.dataType);
+      }
+
+      setSettingsSavedMsg("Ajustes guardados correctamente");
+    } catch {
+      // el error ya queda en settingsError
+    } finally {
+      setSavingAllSettings(false);
+    }
+  };
+  const [name, setName] = useState("");
+  const [address, setAddress] = useState("");
+  const [phone, setPhone] = useState("");
+  const [status, setStatus] = useState(true);
+  const [savedMsg, setSavedMsg] = useState("");
+
+  // Datos reales de la sesiÃ³n â€” nada quemado. `identifier` es el correo con
+  // el que se iniciÃ³ sesiÃ³n (asÃ­ se guarda en el login). `roles` viene del
+  // JWT tal cual, asÃ­ que se muestra en mayÃºsculas del backend.
+  const userEmail = session?.identifier ?? "";
+  const userRole = session?.roles?.join(", ") ?? "";
+
+  // URL pÃºblica de la carta digital (usa la variable de entorno si existe,
+  // o cae al origen actual del navegador como respaldo).
+  const menuUrl =
+    (process.env.NEXT_PUBLIC_APP_URL ||
+      (typeof window !== "undefined" ? window.location.origin : "")) +
+    "/letter" +
+    (effectiveBranchId ? `?branchId=${effectiveBranchId}` : "");
+
+  useEffect(() => {
+    if (branch) {
+      setName(branch.name);
+      setAddress(branch.address ?? "");
+      setPhone(branch.phone ?? "");
+      setStatus(branch.status);
+    }
+  }, [branch]);
+
+  const handleSaveBranch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavedMsg("");
+
+    if (!name.trim()) {
+      alert(
+        "El nombre de la sede no puede estar vacÃ­o. Espera a que cargue la informaciÃ³n o vuelve a intentar.",
+      );
+      return;
+    }
+
+    try {
+      if (isGerente) {
+        if (!branch) return;
+        await updateBranch(branch.id, { name, address, phone, status });
+      } else {
+        await updateMyBranch({ name, address, phone, status });
+      }
+      setSavedMsg("Sede actualizada correctamente");
+    } catch {
+      // el error ya queda en branchError
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
+  };
+
+  const handleDownloadQr = () => {
+    const canvas = qrRef.current?.querySelector("canvas");
+    if (!canvas) return;
+    const url = canvas.toDataURL("image/png");
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `carta-digital-qr-${effectiveBranchName}.png`;
+    link.click();
+  };
+
+  return (
+    <>
+      <div className="flex flex-col h-full space-y-6 pb-10">
+        <div className="border-b border-gray-200 pb-6">
+          <h1 className="text-3xl font-bold text-[#111827] tracking-tight">
+            ConfiguraciÃ³n del Sistema
+          </h1>
+          <p className="text-gray-500 mt-1">
+            Administra tu perfil, parÃ¡metros del restaurante y seguridad de la
+            cuenta.
+          </p>
+        </div>
+
+        <div className="flex flex-col md:flex-row gap-8 pt-2">
+          <div className="w-full md:w-64 flex-shrink-0">
+            <nav className="flex flex-col gap-2">
+              <button
+                onClick={() => setActiveTab("perfil")}
+                className={`text-left px-4 py-3 rounded-xl text-sm font-bold transition-colors ${activeTab === "perfil" ? "bg-[#111827] text-white shadow-md" : "text-gray-600 hover:bg-gray-100"}`}
+              >
+                ðŸ‘¤ Perfil del Administrador
+              </button>
+              <button
+                onClick={() => setActiveTab("negocio")}
+                className={`text-left px-4 py-3 rounded-xl text-sm font-bold transition-colors ${activeTab === "negocio" ? "bg-[#111827] text-white shadow-md" : "text-gray-600 hover:bg-gray-100"}`}
+              >
+                ðŸª Ajustes del Restaurante
+              </button>
+              <button
+                onClick={() => setActiveTab("carta")}
+                className={`text-left px-4 py-3 rounded-xl text-sm font-bold transition-colors ${activeTab === "carta" ? "bg-[#111827] text-white shadow-md" : "text-gray-600 hover:bg-gray-100"}`}
+              >
+                ðŸ”— Carta Digital (QR)
+              </button>
+              <button
+                onClick={() => setActiveTab("seguridad")}
+                className={`text-left px-4 py-3 rounded-xl text-sm font-bold transition-colors ${activeTab === "seguridad" ? "bg-[#111827] text-white shadow-md" : "text-gray-600 hover:bg-gray-100"}`}
+              >
+                ðŸ›¡ï¸ Seguridad y Accesos
+              </button>
+            </nav>
+          </div>
+          <div className="flex-1">
+            {activeTab === "perfil" && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 animate-fade-in">
+                <h2 className="text-xl font-bold text-[#111827] mb-6">
+                  InformaciÃ³n Personal
+                </h2>
+
+                <div className="flex items-center gap-6 mb-8 pb-8 border-b border-gray-100">
+                  <div className="w-20 h-20 rounded-2xl bg-gray-100 border border-gray-200 flex items-center justify-center text-3xl shadow-inner">
+                    ðŸ‘¨â€ðŸ’»
+                  </div>
+                  <div>
+                    <button className="bg-white border border-gray-200 hover:bg-gray-50 text-[#111827] text-xs font-bold py-2 px-4 rounded-lg shadow-sm transition-colors mb-2">
+                      Cambiar Avatar
+                    </button>
+                    <p className="text-[10px] text-gray-400">
+                      JPG, GIF o PNG. Max 1MB.
+                    </p>
+                  </div>
+                </div>
+
+                <form
+                  className="space-y-5"
+                  onSubmit={(e) => e.preventDefault()}
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        Nombre Completo
+                      </label>
+                      {/* No hay endpoint de perfil todavÃ­a que devuelva el
+                          nombre del usuario â€” el JWT solo trae identifier y
+                          roles. Queda editable y vacÃ­o en vez de un nombre
+                          quemado, a la espera de conectar /Employees/me o
+                          similar. */}
+                      <input
+                        type="text"
+                        placeholder="AÃºn no conectado a un endpoint de perfil"
+                        className={`${inputClass} bg-gray-50`}
+                        disabled
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        Rol
+                      </label>
+                      <input
+                        type="text"
+                        value={userRole}
+                        disabled
+                        className="w-full px-4 py-2.5 rounded-xl border border-gray-100 text-sm bg-gray-100 text-gray-500 cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        Correo ElectrÃ³nico
+                      </label>
+                      <input
+                        type="email"
+                        value={userEmail}
+                        disabled
+                        className={`${inputClass} bg-gray-50`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        TelÃ©fono de Contacto
+                      </label>
+                      <input
+                        type="tel"
+                        placeholder="AÃºn no conectado a un endpoint de perfil"
+                        className={`${inputClass} bg-gray-50`}
+                        disabled
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    Nombre y telÃ©fono se habilitarÃ¡n cuando exista un endpoint
+                    de perfil de usuario conectado. Por ahora se muestran los
+                    datos reales de sesiÃ³n: correo y rol.
+                  </p>
+                </form>
+              </div>
+            )}
+
+            {activeTab === "negocio" && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 animate-fade-in">
+                <h2 className="text-xl font-bold text-[#111827] mb-6">
+                  {isGerente ? "ConfiguraciÃ³n por Sede" : "Mi Sede"}
+                </h2>
+
+                {isGerente && (
+                  <div className="mb-6">
+                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                      Selecciona la sede a configurar
+                    </label>
+                    <select
+                      value={settingsBranchId}
+                      onChange={(e) =>
+                        setSettingsBranchId(
+                          e.target.value ? Number(e.target.value) : "",
+                        )
+                      }
+                      className={inputClass}
+                    >
+                      <option value="">Selecciona una sede...</option>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {isGerente && !branch ? (
+                  <p className="text-sm text-gray-400 py-4">
+                    Elige una sede arriba para ver y editar su configuraciÃ³n.
+                  </p>
+                ) : branchLoading ? (
+                  <p className="text-sm text-gray-500">
+                    Cargando datos de la sede...
+                  </p>
+                ) : branchError ? (
+                  <p className="text-sm text-red-600">{branchError}</p>
+                ) : (
+                  <form className="space-y-6" onSubmit={handleSaveBranch}>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                          Nombre de la Sede
+                        </label>
+                        <input
+                          type="text"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                          TelÃ©fono
+                        </label>
+                        <input
+                          type="text"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                          DirecciÃ³n
+                        </label>
+                        <input
+                          type="text"
+                          value={address}
+                          onChange={(e) => setAddress(e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
+                      <div>
+                        <h4 className="font-bold text-[#111827] text-sm">
+                          Estado de la Sede
+                        </h4>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Activa o inactiva dentro del sistema.
+                        </p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={status}
+                          onChange={(e) => setStatus(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+                      </label>
+                    </div>
+
+                    {savedMsg && (
+                      <p className="text-sm text-green-600 font-medium">
+                        {savedMsg}
+                      </p>
+                    )}
+
+                    <div className="pt-4 flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={saving}
+                        className="bg-[#111827] hover:bg-gray-800 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
+                      >
+                        {saving ? "Guardando..." : "Actualizar Sede"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {branch && (
+                  <div className="mt-8 pt-8 border-t border-gray-100">
+                    <h3 className="text-lg font-bold text-[#111827] mb-1">
+                      Ajustes Operativos
+                    </h3>
+                    <p className="text-xs text-gray-500 mb-6">
+                      Horarios, impuestos y tarifas especÃ­ficas de esta sede.
+                    </p>
+
+                    {settingsLoading ? (
+                      <div className="space-y-3">
+                        {[1, 2, 3].map((i) => (
+                          <div
+                            key={i}
+                            className="h-12 rounded-xl bg-gray-100 animate-pulse"
+                          />
+                        ))}
+                      </div>
+                    ) : settingsError ? (
+                      <p className="text-sm text-red-600">{settingsError}</p>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                          {SETTING_DEFINITIONS.map((def) => {
+                            const currentValue = getValue(def.key);
+                            const draftValue =
+                              settingsDraft[def.key] ?? currentValue;
+                            return (
+                              <div key={def.key}>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                                  {def.label}
+                                </label>
+                                <input
+                                  type={
+                                    def.dataType === "time"
+                                      ? "time"
+                                      : def.dataType === "decimal"
+                                        ? "number"
+                                        : "text"
+                                  }
+                                  step={
+                                    def.dataType === "decimal"
+                                      ? "0.01"
+                                      : undefined
+                                  }
+                                  value={draftValue}
+                                  onChange={(e) =>
+                                    setSettingsDraft((prev) => ({
+                                      ...prev,
+                                      [def.key]: e.target.value,
+                                    }))
+                                  }
+                                  className={inputClass}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="pt-6 flex items-center justify-between">
+                          {settingsSavedMsg && (
+                            <p className="text-sm text-green-600 font-medium">
+                              {settingsSavedMsg}
+                            </p>
+                          )}
+                          <button
+                            onClick={handleSaveAllSettings}
+                            disabled={savingAllSettings}
+                            className="ml-auto bg-[#111827] hover:bg-gray-800 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
+                          >
+                            {savingAllSettings ? "Guardando..." : "Guardar Ajustes Operativos"}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === "carta" && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 animate-fade-in">
+                <h2 className="text-xl font-bold text-[#111827] mb-2">
+                  CÃ³digo QR de la Carta Digital
+                </h2>
+                <p className="text-sm text-gray-500 mb-6">
+                  Imprime este cÃ³digo y colÃ³calo en cada mesa. Los clientes lo
+                  escanean con su celular para ver el menÃº del restaurante.
+                </p>
+
+                {isGerente && (
+                  <div className="mb-2">
+                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                      Sede del QR
+                    </label>
+                    <select
+                      value={qrBranchId}
+                      onChange={(e) =>
+                        setQrBranchId(
+                          e.target.value ? Number(e.target.value) : "",
+                        )
+                      }
+                      className={inputClass}
+                    >
+                      <option value="">Todas las sedes</option>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="flex flex-col items-center gap-6 py-6">
+                  <div
+                    ref={qrRef}
+                    className="p-6 bg-white border-2 border-gray-100 rounded-2xl shadow-sm"
+                  >
+                    <QRCodeCanvas value={menuUrl} size={220} level="M" />
+                  </div>
+
+                  <p className="text-xs text-gray-400 break-all text-center max-w-sm">
+                    {menuUrl}
+                  </p>
+
+                  <button
+                    onClick={handleDownloadQr}
+                    className="bg-[#111827] hover:bg-gray-800 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm"
+                  >
+                    Descargar QR (PNG)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "seguridad" && (
+              <div className="space-y-6 animate-fade-in">
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
+                  <h2 className="text-xl font-bold text-[#111827] mb-6">
+                    Actualizar ContraseÃ±a
+                  </h2>
+                  <form
+                    className="space-y-4 max-w-md"
+                    onSubmit={(e) => e.preventDefault()}
+                  >
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        ContraseÃ±a Actual
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        Nueva ContraseÃ±a
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div className="pt-2">
+                      <button className="bg-white border border-gray-200 hover:bg-gray-50 text-[#111827] font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm">
+                        Actualizar
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                <div className="bg-red-50/50 rounded-2xl border border-red-100 p-8">
+                  <h2 className="text-lg font-bold text-red-800 mb-2">
+                    Zona de Control de SesiÃ³n
+                  </h2>
+                  <p className="text-sm text-gray-600 mb-6">
+                    Al cerrar sesiÃ³n requerirÃ¡s ingresar nuevamente tu correo y
+                    contraseÃ±a para acceder al panel administrativo.
+                  </p>
+
+                  <div className="flex gap-4">
+                    <button
+                      onClick={handleLogout}
+                      className="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm flex items-center gap-2"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                        <polyline points="16 17 21 12 16 7"></polyline>
+                        <line x1="21" y1="12" x2="9" y2="12"></line>
+                      </svg>
+                      Cerrar SesiÃ³n
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+
+===== .\app\config\page.tsx =====
+import { ConfigView } from '@/features/Configurations/views/config-view';
+
+export default function ConfigPage() {
+  return <ConfigView />;
+}
+
+===== .\components\ui\language-selector.tsx =====
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import i18nInstance from "@/config/i18n"; // <- IMPORTACIÃ“N DIRECTA DE TU ARCHIVO
+
+const LANGUAGES = [
+  { code: "es", name: "EspaÃ±ol", flag: "ðŸ‡ªðŸ‡¸" },
+  { code: "en", name: "English", flag: "ðŸ‡ºðŸ‡¸" },
+  { code: "pt", name: "PortuguÃªs", flag: "ðŸ‡§ðŸ‡·" },
+  { code: "fr", name: "FranÃ§ais", flag: "ðŸ‡«ðŸ‡·" },
+];
+
+const LANGUAGE_STORAGE_KEY = "sabor-express-language"; // ðŸ‘ˆ nuevo
+
+interface LanguageSelectorProps {
+  direction?: "up" | "down";
+}
+
+export const LanguageSelector = ({
+  direction = "up",
+}: LanguageSelectorProps) => {
+  // Solo sacamos "t" del hook para traducir, dejamos a i18n quieto
+  const { t } = useTranslation();
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Usamos i18nInstance directo de tu archivo para leer el idioma actual
+  const currentLang =
+    LANGUAGES.find(
+      (l) =>
+        l.code ===
+        (i18nInstance.resolvedLanguage || i18nInstance.language || "es"),
+    ) || LANGUAGES[0];
+
+  const changeLanguage = (code: string) => {
+    // Usamos i18nInstance directo de tu archivo para cambiar el idioma
+    i18nInstance.changeLanguage(code);
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, code); // ðŸ‘ˆ nuevo
+    setIsOpen(false);
+  };
+
+  const dropdownPositionClasses =
+    direction === "up"
+      ? "bottom-full mb-2 slide-in-from-bottom-2"
+      : "top-full mt-2 slide-in-from-top-2";
+
+  return (
+    <div className="relative w-full" ref={dropdownRef}>
+      <button
+        type="button" // Evita que el botÃ³n intente enviar formularios si estÃ¡ dentro de uno (como en tu Login)
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-[#111827] hover:bg-gray-800 border border-gray-800 hover:border-gray-700 rounded-xl transition-all duration-200 group shadow-sm"
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-lg opacity-80 group-hover:opacity-100 transition-opacity">
+            {currentLang.flag}
+          </span>
+          <span className="text-xs font-bold text-gray-400 group-hover:text-white transition-colors">
+            {currentLang.name}
+          </span>
+        </div>
+
+        <svg
+          className={`w-4 h-4 text-gray-500 transition-transform duration-300 ${isOpen && direction === "up" ? "rotate-180" : ""} ${isOpen && direction === "down" ? "-rotate-180" : ""} ${!isOpen && direction === "up" ? "" : ""} ${!isOpen && direction === "down" ? "rotate-180" : ""} ${isOpen ? "text-white" : ""}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M19 9l-7 7-7-7"
+          />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <div
+          className={`absolute left-0 w-full bg-[#1f2937] border border-gray-700 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in ${dropdownPositionClasses}`}
+        >
+          <div className="py-2 flex flex-col">
+            {LANGUAGES.map((lang) => (
+              <button
+                key={lang.code}
+                type="button"
+                onClick={() => changeLanguage(lang.code)}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold transition-all ${
+                  currentLang.code === lang.code
+                    ? "bg-[#EA1D2C]/10 text-[#EA1D2C]"
+                    : "text-gray-400 hover:bg-gray-700 hover:text-white"
+                }`}
+              >
+                <span className="text-base">{lang.flag}</span>
+                <span>{lang.name}</span>
+                {currentLang.code === lang.code && (
+                  <span className="ml-auto text-[#EA1D2C] font-black">âœ“</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+===== .\components\language-initializer.tsx =====
+"use client";
+
+import { useEffect } from "react";
+import i18n from "@/config/i18n";
+
+const LANGUAGE_STORAGE_KEY = "sabor-express-language";
+
+export function LanguageInitializer() {
+  useEffect(() => {
+    const savedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    if (savedLanguage && savedLanguage !== i18n.language) {
+      i18n.changeLanguage(savedLanguage);
+    }
+  }, []);
+
+  return null;
+}
+
+
+===== .\providers\i18n-provider.tsx =====
+"use client";
+
+import { I18nextProvider } from "react-i18next";
+import i18n from "@/config/i18n"; 
+
+export function I18nProvider({ children }: { children: React.ReactNode }) {
+  return (
+    <I18nextProvider i18n={i18n}>
+      {children}
+    </I18nextProvider>
+  );
+}
+
+===== .\config\api.ts =====
+import axios from "axios";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+
+const SESSION_KEY = "sabor-express-session";
+export const SERVER_BASE_URL = API_BASE;
+export const http = axios.create({
+  baseURL: `${API_BASE}/api`,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+function readSession() {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(SESSION_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+function saveSession(session: any) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
+
+http.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const session = readSession();
+    if (session?.token) {
+      config.headers.Authorization = `Bearer ${session.token}`;
+    }
+  }
+  return config;
+});
+
+// Muestra un aviso breve en pantalla antes de redirigir al login.
+// Vive fuera de React (el interceptor no tiene acceso a hooks/contexto),
+// asÃ­ que se construye con DOM plano.
+function showSessionExpiredToast() {
+  if (document.getElementById("session-expired-toast")) return; // evita duplicados
+
+  const toast = document.createElement("div");
+  toast.id = "session-expired-toast";
+  toast.textContent =
+    "Tu sesiÃ³n expirÃ³ o se iniciÃ³ en otro dispositivo. Redirigiendo al login...";
+  toast.style.cssText = `
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #111827;
+    color: #ffffff;
+    padding: 14px 24px;
+    border-radius: 12px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    z-index: 999999;
+    border-left: 4px solid #EA1D2C;
+  `;
+  document.body.appendChild(toast);
+}
+
+let redirecting = false;
+
+// --- LÃ³gica de refresh automÃ¡tico ---
+let isRefreshing = false;
+let refreshSubscribers: Array<{
+  resolve: (token: string) => void;
+  reject: (err: unknown) => void;
+}> = [];
+
+function onTokenRefreshed(newToken: string) {
+  refreshSubscribers.forEach((s) => s.resolve(newToken));
+  refreshSubscribers = [];
+}
+
+function onRefreshFailed(err: unknown) {
+  refreshSubscribers.forEach((s) => s.reject(err));
+  refreshSubscribers = [];
+}
+
+function forceLogout() {
+  if (redirecting) return;
+  redirecting = true;
+  localStorage.removeItem(SESSION_KEY);
+  showSessionExpiredToast();
+  setTimeout(() => {
+    window.location.href = "/login";
+  }, 2500);
+}
+
+http.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    // Reescribe error.message con el mensaje real que manda el backend
+    // (ej. "Ya existe una mesa con ese nÃºmero en esta sucursal"), para que
+    // cualquier `catch` en cualquier hook lo reciba correcto automÃ¡ticamente,
+    // en vez del genÃ©rico "Request failed with status code 400" de Axios.
+    const backendMessage =
+      error?.response?.data?.error ?? error?.response?.data?.message;
+    if (backendMessage) {
+      error.message = backendMessage;
+    }
+
+    if (typeof window === "undefined") {
+      return Promise.reject(error);
+    }
+
+    const originalRequest = error.config;
+    const isLoginAttempt = originalRequest?.url?.includes("/Auth/login");
+    const isRefreshAttempt = originalRequest?.url?.includes(
+      "/Auth/refresh-token",
+    );
+
+    if (error?.response?.status !== 401 || isLoginAttempt || isRefreshAttempt) {
+      // Si el propio refresh-token fallÃ³ (refresh token vencido/invÃ¡lido),
+      // no hay nada mÃ¡s que hacer: cerramos sesiÃ³n.
+      if (error?.response?.status === 401 && isRefreshAttempt) {
+        forceLogout();
+      }
+      return Promise.reject(error);
+    }
+
+    // Evita reintentar infinitamente la misma peticiÃ³n
+    if (originalRequest._retry) {
+      forceLogout();
+      return Promise.reject(error);
+    }
+    originalRequest._retry = true;
+
+    const session = readSession();
+    if (!session?.refreshToken) {
+      forceLogout();
+      return Promise.reject(error);
+    }
+
+    // Si ya hay un refresh en curso, encolamos esta peticiÃ³n
+    // hasta que termine, en vez de disparar refresh-token varias veces a la vez.
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        refreshSubscribers.push({
+          resolve: (newToken: string) => {
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            resolve(http(originalRequest));
+          },
+          reject,
+        });
+      });
+    }
+
+    isRefreshing = true;
+
+    try {
+      const { data } = await axios.post(
+        `${http.defaults.baseURL}/Auth/refresh-token`,
+        { refreshToken: session.refreshToken },
+      );
+
+      const newSession = {
+        ...session,
+        userId: data.userId ?? session.userId,
+        identifier: data.identifier,
+        roles: data.roles,
+        token: data.token,
+        refreshToken: data.refreshToken,
+      };
+      saveSession(newSession);
+
+      isRefreshing = false;
+      onTokenRefreshed(data.token);
+
+      originalRequest.headers.Authorization = `Bearer ${data.token}`;
+      return http(originalRequest);
+    } catch (refreshError) {
+      isRefreshing = false;
+      onRefreshFailed(refreshError);
+      forceLogout();
+      return Promise.reject(refreshError);
+    }
+  },
+);
+export const publicHttp = axios.create({
+  baseURL: `${API_BASE}/api`,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+===== .\config\i18n.ts =====
+import i18n from "i18next";
+import { initReactI18next } from "react-i18next";
+
+const resources = {
+  es: {
+    translation: {
+      menu: {
+        brand: "Sabor",
+        suffix: "Express",
+        slogan: "Panel de administraciÃ³n",
+        dashboard: "Dashboard",
+        orders: "Pedidos",
+        audit: "AuditorÃ­a de caja",
+        inventory: "Inventario",
+        staff: "Personal",
+        config: "ConfiguraciÃ³n",
+      },
+      login: {
+        title1: "Iniciar",
+        title2: "SesiÃ³n",
+        subtitle: "Bienvenido de nuevo a su sistema",
+        email: "Correo electrÃ³nico",
+        password: "ContraseÃ±a",
+        submit: "Ingresar",
+        success: "Â¡Sus credenciales son correctas!",
+        error: "Credenciales incorrectas, intente de nuevo.",
+        description: "Plataforma integral de gestiÃ³n y entregas",
+      },
+      modal: {
+        success: "Â¡Ã‰xito!",
+        error: "Error",
+        warning: "Â¡AtenciÃ³n!",
+        understood: "Entendido",
+      },
+    },
+  },
+
+  en: {
+    translation: {
+      menu: {
+        brand: "Flavor",
+        suffix: "Express",
+        slogan: "Admin panel",
+        dashboard: "Dashboard",
+        orders: "Orders",
+        audit: "Cash audit",
+        inventory: "Inventory",
+        staff: "Staff",
+        config: "Settings",
+      },
+      login: {
+        title1: "Login",
+        title2: "System",
+        subtitle: "Welcome back to your system",
+        email: "Email",
+        password: "Password",
+        submit: "Sign in",
+        success: "Your credentials are correct!",
+        error: "Incorrect credentials, please try again.",
+        description: "Comprehensive management and delivery platform",
+      },
+      modal: {
+        success: "Success!",
+        error: "Error",
+        warning: "Warning!",
+        understood: "Understood",
+      },
+    },
+  },
+
+  pt: {
+    translation: {
+      menu: {
+        brand: "Sabor",
+        suffix: "Express",
+        slogan: "Painel de administraÃ§Ã£o",
+        dashboard: "Painel",
+        orders: "Pedidos",
+        audit: "Auditoria de caixa",
+        inventory: "Estoque",
+        staff: "Equipe",
+        config: "ConfiguraÃ§Ãµes",
+      },
+      login: {
+        title1: "Iniciar",
+        title2: "Sistema",
+        subtitle: "Bem-vindo de volta ao seu sistema",
+        email: "E-mail",
+        password: "Senha",
+        submit: "Entrar",
+        success: "Suas credenciais estÃ£o corretas!",
+        error: "Credenciais incorretas, tente novamente.",
+        description: "Plataforma integrada de gestÃ£o e entregas",
+      },
+      modal: {
+        success: "Sucesso!",
+        error: "Erro",
+        warning: "AtenÃ§Ã£o!",
+        understood: "Entendido",
+      },
+    },
+  },
+
+  fr: {
+    translation: {
+      menu: {
+        brand: "Saveur",
+        suffix: "Express",
+        slogan: "Panneau d'administration",
+        dashboard: "Tableau de bord",
+        orders: "Commandes",
+        audit: "Audit de caisse",
+        inventory: "Inventaire",
+        staff: "Personnel",
+        config: "ParamÃ¨tres",
+      },
+      login: {
+        title1: "Connexion",
+        title2: "SystÃ¨me",
+        subtitle: "Bienvenue dans votre systÃ¨me",
+        email: "E-mail",
+        password: "Mot de passe",
+        submit: "Se connecter",
+        success: "Vos identifiants sont corrects !",
+        error: "Identifiants incorrects, veuillez rÃ©essayer.",
+        description: "Plateforme complÃ¨te de gestion et de livraisons",
+      },
+      modal: {
+        success: "SuccÃ¨s !",
+        error: "Erreur",
+        warning: "Attention !",
+        understood: "Compris",
+      },
+    },
+  },
+};
+
+i18n.use(initReactI18next).init({
+  resources,
+  lng: "es",
+  fallbackLng: "es",
+  load: "languageOnly",
+  interpolation: {
+    escapeValue: false,
+  },
+});
+
+export default i18n;
+
