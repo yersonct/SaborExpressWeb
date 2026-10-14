@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { http } from "@/config/api";
+import { useAuth } from "@/features/auth/hooks/use-auth";
+import { useAdminDataChanged } from "@/features/Dashboard/hooks/use-admin-data-changed";
+import { useRealtimeConnectionStatus } from "@/features/Dashboard/hooks/use-realtime-events";
 
 export interface Role {
   id: number;
@@ -12,28 +15,41 @@ export interface Role {
 }
 
 export function useRoles() {
+  const { session } = useAuth();
+  const userId = session?.userId ?? null;
+  const realtimeStatus = useRealtimeConnectionStatus(userId);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const fetchRoles = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const fetchRoles = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const { data } = await http.get<Role[]>("/Roles");
       setRoles(data);
+      setError("");
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No se pudieron cargar los roles",
-      );
+      if (!silent) {
+        setError(
+          err instanceof Error ? err.message : "No se pudieron cargar los roles",
+        );
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     fetchRoles();
   }, [fetchRoles]);
+
+  const refreshAfterChange = useCallback(() => {
+    void fetchRoles(true);
+  }, [fetchRoles]);
+  useAdminDataChanged(userId, ["Roles", "RolePermissions", "UserRoles"], refreshAfterChange, refreshAfterChange);
 
   // El backend exige el objeto completo (Name, Description, RequiresCv,
   // Status) en el PUT, así que mandamos los valores actuales del rol y
@@ -45,7 +61,7 @@ export function useRoles() {
       requiresCv,
       status: role.status,
     });
-    await fetchRoles();
+    if (realtimeStatus !== "connected") await fetchRoles(true);
   };
 
   // Un solo botón que aplica el mismo valor a un grupo de roles a la vez
@@ -66,7 +82,7 @@ export function useRoles() {
         }),
       ),
     );
-    await fetchRoles();
+    if (realtimeStatus !== "connected") await fetchRoles(true);
   };
 
   return {

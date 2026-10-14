@@ -3,6 +3,7 @@
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { translateCopy } from "@/config/copy-translations";
 import { useForgotPassword } from "../hooks/use-forgot-password";
 import { ForgotPasswordFlowProps } from "../types/auth.types";
 interface Step1EmailProps {
@@ -31,30 +32,43 @@ interface Step3ResetProps {
   error: string;
 }
 
-const StepProgress = ({ currentStep }: { currentStep: number }) => (
-  <div className="flex justify-center items-center gap-2 mb-8 animate-in fade-in duration-700">
-    {[1, 2, 3].map((step) => (
-      <div key={step} className="flex items-center gap-2">
-        <div
-          className={`h-3 w-3 rounded-full transition-all duration-500 ${
-            step === currentStep
-              ? "bg-[#EA1D2C] scale-125 shadow-[0_0_12px_rgba(234,29,44,0.6)]"
-              : step < currentStep
-                ? "bg-[#10B981]"
-                : "bg-gray-200"
-          }`}
-        />
-        {step < 3 && (
+const StepProgress = ({ currentStep }: { currentStep: number }) => {
+  const { t } = useTranslation();
+
+  return (
+    <div
+      className="flex justify-center items-center gap-2 mb-8 animate-in fade-in duration-700"
+      role="progressbar"
+      aria-label={t("forgot.progress", { current: currentStep, total: 3 })}
+      aria-valuemin={1}
+      aria-valuemax={3}
+      aria-valuenow={currentStep}
+      aria-valuetext={t("forgot.progress", { current: currentStep, total: 3 })}
+    >
+      {[1, 2, 3].map((step) => (
+        <div key={step} className="flex items-center gap-2">
           <div
-            className={`h-1 w-8 rounded-full transition-all duration-500 ${
-              step < currentStep ? "bg-[#10B981]" : "bg-gray-200"
+            className={`h-3 w-3 rounded-full transition-all duration-500 ${
+              step === currentStep
+                ? "bg-[#EA1D2C] scale-125 ring-2 ring-[#FDA4AF] shadow-[0_0_12px_rgba(234,29,44,0.6)]"
+                : step < currentStep
+                  ? "bg-[#10B981] border-2 border-[#A7F3D0]"
+                  : "bg-[#CBD5E1] border-2 border-[#475569]"
             }`}
+            aria-hidden="true"
           />
-        )}
-      </div>
-    ))}
-  </div>
-);
+          {step < 3 && (
+            <div
+              className={`h-1 w-8 rounded-full transition-all duration-500 ${
+                step < currentStep ? "bg-[#10B981]" : "bg-[#94A3B8]"
+              }`}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
 
 const Step1Email = ({
   email,
@@ -68,10 +82,10 @@ const Step1Email = ({
     <div className="space-y-5 animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-500">
       <div className="text-center mb-6">
         <h2 className="text-3xl font-extrabold text-[#111827] tracking-tight">
-          {t("forgot.step1_title", "Recuperar Contraseña")}
+          {t("forgot.step1_title")}
         </h2>
         <p className="text-sm text-gray-500 mt-3">
-          {t("forgot.step1_desc", "Ingresa tu correo para recibir un código.")}
+          {translateCopy("Solo las cuentas de Gerente y Administrador pueden recuperar su contraseña desde aquí.")}
         </p>
       </div>
 
@@ -93,7 +107,7 @@ const Step1Email = ({
           isLoading={loading}
           className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold h-14 text-[1rem] rounded-2xl w-full transition-all duration-300 shadow-[0_8px_20px_-6px_rgba(234,29,44,0.5)] hover:shadow-[0_12px_25px_-6px_rgba(234,29,44,0.7)] hover:-translate-y-1 active:scale-[0.98]"
         >
-          {t("forgot.send_code", "Enviar Código")}
+          {t("forgot.send_code")}
         </Button>
       </div>
     </div>
@@ -112,16 +126,16 @@ const Step2Code = ({
     <div className="space-y-5 animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-500">
       <div className="text-center mb-6">
         <h2 className="text-3xl font-extrabold text-[#111827] tracking-tight">
-          {t("forgot.step2_title", "Ingresa el Código")}
+          {t("forgot.step2_title")}
         </h2>
         <p className="text-sm text-gray-500 mt-3">
-          {t("forgot.step2_desc", "Revisa tu bandeja de entrada.")}
+          {t("forgot.step2_desc")}
         </p>
       </div>
 
       <div className="relative group">
         <Input
-          label={t("forgot.code", "Código de 6 dígitos")}
+          label={t("forgot.code")}
           type="text"
           maxLength={6}
           value={code}
@@ -138,7 +152,7 @@ const Step2Code = ({
           isLoading={loading}
           className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold h-14 text-[1rem] rounded-2xl w-full transition-all duration-300 shadow-[0_8px_20px_-6px_rgba(234,29,44,0.5)] hover:shadow-[0_12px_25px_-6px_rgba(234,29,44,0.7)] hover:-translate-y-1 active:scale-[0.98]"
         >
-          {t("forgot.verify", "Verificar Código")}
+          {t("forgot.verify")}
         </Button>
       </div>
     </div>
@@ -159,16 +173,16 @@ const Step3Reset = ({
     <div className="space-y-5 animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-500">
       <div className="text-center mb-6">
         <h2 className="text-3xl font-extrabold text-[#111827] tracking-tight">
-          {t("forgot.step3_title", "Nueva Contraseña")}
+          {t("forgot.step3_title")}
         </h2>
         <p className="text-sm text-gray-500 mt-3">
-          {t("forgot.step3_desc", "Crea tu nueva contraseña segura.")}
+          {t("forgot.step3_desc")}
         </p>
       </div>
 
       <div className="relative group">
         <Input
-          label={t("forgot.new_password", "Nueva Contraseña")}
+          label={t("forgot.new_password")}
           type="password"
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
@@ -180,7 +194,7 @@ const Step3Reset = ({
 
       <div className="relative group">
         <Input
-          label={t("forgot.confirm_password", "Confirmar Contraseña")}
+          label={t("forgot.confirm_password")}
           type="password"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
@@ -195,7 +209,7 @@ const Step3Reset = ({
           isLoading={loading}
           className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold h-14 text-[1rem] rounded-2xl w-full transition-all duration-300 shadow-[0_8px_20px_-6px_rgba(234,29,44,0.5)] hover:shadow-[0_12px_25px_-6px_rgba(234,29,44,0.7)] hover:-translate-y-1 active:scale-[0.98]"
         >
-          {t("forgot.save", "Guardar Contraseña")}
+          {t("forgot.save")}
         </Button>
       </div>
     </div>

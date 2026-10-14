@@ -8,13 +8,17 @@ import type {
 export const categoryService = {
   // GET /api/Categories — cualquier usuario autenticado
   getAll: async (): Promise<Category[]> => {
-    const { data } = await http.get<Category[]>("/Categories");
+    const { data } = await http.get<Category[]>("/Categories", {
+      params: { includeInactive: true },
+    });
     return data;
   },
 
   // GET /api/Categories/{id} — cualquier usuario autenticado
   getById: async (id: number): Promise<Category> => {
-    const { data } = await http.get<Category>(`/Categories/${id}`);
+    const { data } = await http.get<Category>(`/Categories/${id}`, {
+      params: { includeInactive: true },
+    });
     return data;
   },
 

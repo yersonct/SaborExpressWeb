@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "@/features/auth/hooks/use-auth";
+import { useAdminDataChanged } from "@/features/Dashboard/hooks/use-admin-data-changed";
+import { useRealtimeConnectionStatus } from "@/features/Dashboard/hooks/use-realtime-events";
 import { branchService } from "../services/branch.service";
 import type {
   Branch,
@@ -9,28 +12,36 @@ import type {
 } from "../types/branch.types";
 
 export function useBranches(enabled?: boolean) {
+  const { session } = useAuth();
+  const userId = session?.userId ?? null;
+  const realtimeStatus = useRealtimeConnectionStatus(userId);
   const isEnabled = enabled === true;
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(isEnabled);
   const [error, setError] = useState("");
 
-const fetchBranches = useCallback(async () => {
+const fetchBranches = useCallback(async (silent = false) => {
   if (!isEnabled) {
     setLoading(false);
     return;
   }
-  setLoading(true);
-  setError("");
+  if (!silent) {
+    setLoading(true);
+    setError("");
+  }
   try {
     const data = await branchService.getAll();
     const sorted = [...data].sort((a, b) => b.id - a.id); // más reciente primero
     setBranches(sorted);
+    setError("");
   } catch (err) {
-    setError(
-      err instanceof Error ? err.message : "No se pudieron cargar las sedes",
-    );
+    if (!silent) {
+      setError(
+        err instanceof Error ? err.message : "No se pudieron cargar las sedes",
+      );
+    }
   } finally {
-    setLoading(false);
+    if (!silent) setLoading(false);
   }
 }, [isEnabled]);
 
@@ -38,19 +49,24 @@ const fetchBranches = useCallback(async () => {
     fetchBranches();
   }, [fetchBranches]);
 
+  const refreshAfterChange = useCallback(() => {
+    void fetchBranches(true);
+  }, [fetchBranches]);
+  useAdminDataChanged(userId, ["Branches"], refreshAfterChange, refreshAfterChange);
+
   const createBranch = async (payload: CreateBranchPayload) => {
     await branchService.create(payload);
-    await fetchBranches();
+    if (realtimeStatus !== "connected") await fetchBranches(true);
   };
 
   const updateBranch = async (id: number, payload: UpdateBranchPayload) => {
     await branchService.update(id, payload);
-    await fetchBranches();
+    if (realtimeStatus !== "connected") await fetchBranches(true);
   };
 
   const deleteBranch = async (id: number) => {
     await branchService.remove(id);
-    await fetchBranches();
+    if (realtimeStatus !== "connected") await fetchBranches(true);
   };
 
   return {

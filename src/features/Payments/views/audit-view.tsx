@@ -1,6 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { translateCopy, getCurrentLocale } from "@/config/copy-translations";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useRouter } from "next/navigation";
 import { Dialog } from "@/components/ui/dialog";
 import { NotificationModal } from "@/components/ui/modal";
 import { useAuth } from "@/features/auth/hooks/use-auth";
@@ -27,10 +30,22 @@ import {
   buildDateRange,
   type DateRangeOption,
 } from "@/features/Payments/utils/date-ranges";
+import { openPaymentsPdf } from "@/features/Payments/utils/payment-pdf";
+import {
+  formatColombiaDateTime,
+  getColombiaDayKey,
+} from "@/lib/colombia-date";
+import { formatMoney } from "@/lib/format-money";
+import {
+  pendingNavigationKeys,
+  rememberNavigationTarget,
+} from "@/config/pending-navigation";
 
-type NotifyState = { message: string; type: "success" | "error" } | null;
+type NotifyState = { message: string; type: "success" | "error" | "warning" } | null;
 
 export const AuditView = () => {
+  const { t } = useTranslation();
+  const router = useRouter();
   const { session, isHydrated } = useAuth();
   const isGerente =
     isHydrated && !!session?.roles?.some((r) => r.toUpperCase() === "GERENTE");
@@ -52,9 +67,19 @@ export const AuditView = () => {
   // Rango de fechas: el Administrador siempre está fijo en "hoy".
   // El Gerente puede elegir; el valor solo se recalcula cuando cambia la opción, nunca en cada render.
   const [dateOption, setDateOption] = useState<DateRangeOption>("hoy");
+  const [colombiaTodayKey, setColombiaTodayKey] = useState(
+    () => getColombiaDayKey() ?? "",
+  );
+  useEffect(() => {
+    const timer = setInterval(
+      () => setColombiaTodayKey(getColombiaDayKey() ?? ""),
+      60_000,
+    );
+    return () => clearInterval(timer);
+  }, []);
   const { fromDate, toDate } = useMemo(
     () => buildDateRange(isAdministrador ? "hoy" : dateOption),
-    [isAdministrador, dateOption],
+    [isAdministrador, dateOption, colombiaTodayKey],
   );
 
   // Filtro por método de pago (disponible para ambos roles)
@@ -89,19 +114,28 @@ export const AuditView = () => {
     setRefundReason("");
   };
 
+  const handleCancelRefund = () => {
+    setRefundTarget(null);
+    setRefundReason("");
+    setNotify({
+      message: translateCopy("Reembolso cancelado. No se hizo ningún cambio en el pago."),
+      type: "warning",
+    });
+  };
+
   const handleRefund = async () => {
     if (!refundTarget || !refundReason.trim()) return;
     setRefunding(true);
     try {
       await refundPayment(refundTarget.id, refundReason.trim());
-      setNotify({ message: "Pago reembolsado correctamente", type: "success" });
+      setNotify({ message: translateCopy("Pago reembolsado correctamente"), type: "success" });
       setRefundTarget(null);
     } catch (err) {
       setNotify({
         message:
           err instanceof Error
-            ? err.message
-            : "No se pudo procesar el reembolso",
+            ? translateCopy(err.message)
+            : translateCopy("No se pudo procesar el reembolso"),
         type: "error",
       });
     } finally {
@@ -111,39 +145,62 @@ export const AuditView = () => {
 
   // Exportar: solo Gerente
   const handleExport = () => {
-    const rows = filteredPayments.map((p) => ({
-      fecha: new Date(p.paidAt).toLocaleString("es-CO"),
-      pedido: p.orderId,
-      cajero: p.cashierName ?? "",
-      metodo: paymentMethodLabels[p.method],
-      monto: p.amount,
-      estado: paymentStatusLabels[p.status],
-    }));
+    const headers = ["Fecha", "Cajero", "Método", "Monto", "Estado"]
+      .map(translateCopy);
+    const rows = filteredPayments.map((p) => [
+      formatColombiaDateTime(p.paidAt, getCurrentLocale()),
+      p.cashierName ?? "",
+      translateCopy(paymentMethodLabels[p.method]),
+      p.amount,
+      translateCopy(paymentStatusLabels[p.status]),
+    ]);
     const csv = [
-      Object.keys(rows[0] ?? {}).join(","),
-      ...rows.map((r) => Object.values(r).join(",")),
+      headers.join(","),
+      ...rows.map((r) => r.join(",")),
     ].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `pagos_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `${translateCopy("Pagos").toLowerCase()}_${getColombiaDayKey()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
 
+  const handleExportPdf = () => {
+    const rangeLabels: Record<DateRangeOption, string> = {
+      hoy: translateCopy("Hoy"),
+      ayer: translateCopy("Ayer"),
+      semana: translateCopy("Últimos 7 días"),
+      mes: translateCopy("Últimos 30 días"),
+    };
+    const branchName = isAdministrador
+      ? (myBranch?.name ?? "Mi sede")
+      : (branches.find((b) => b.id === selectedBranchId)?.name ??
+        translateCopy("Todas las sedes"));
+
+    openPaymentsPdf({
+      payments: filteredPayments,
+      branchName,
+      rangeLabel: rangeLabels[isAdministrador ? "hoy" : dateOption],
+      methodLabel:
+        methodFilter === "all"
+          ? translateCopy("Todos")
+          : translateCopy(paymentMethodLabels[methodFilter]),
+    });
+  };
+
   return (
     <>
-      <div className="h-full flex flex-col space-y-8 pb-8">
+      <div className="flex h-full min-w-0 flex-col space-y-8 pb-8">
         {/* Encabezado */}
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4 border-b border-gray-200 pb-6">
           <div>
             <h1 className="text-3xl font-bold text-[#111827] tracking-tighter">
-              Auditoría de Caja
+            {t("pageTitles.audit")}
             </h1>
             <p className="text-gray-500 mt-1 font-medium">
-              Consulta de pagos e ingresos.
-            </p>
+               {translateCopy("Consulta de pagos e ingresos.")} </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {/* Selector de sede: solo Gerente */}
@@ -159,7 +216,7 @@ export const AuditView = () => {
                 }
                 className="text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-4 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#EA1D2C]"
               >
-                <option value="all">Todas las sedes</option>
+                <option value="all">{translateCopy("Todas las sedes")}</option>
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}
@@ -173,8 +230,8 @@ export const AuditView = () => {
               <div className="text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-4 py-2 flex items-center gap-2">
                 <span className="text-gray-400">🏬</span>
                 {loadingMyBranch
-                  ? "Cargando sede..."
-                  : (myBranch?.name ?? "Sin sede asignada")}
+                  ? translateCopy("Cargando sede...")
+                  : (myBranch?.name ?? translateCopy("Sin sede asignada"))}
               </div>
             )}
 
@@ -187,10 +244,10 @@ export const AuditView = () => {
                 }
                 className="text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-4 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#EA1D2C]"
               >
-                <option value="hoy">Hoy</option>
-                <option value="ayer">Ayer</option>
-                <option value="semana">Últimos 7 días</option>
-                <option value="mes">Últimos 30 días</option>
+                <option value="hoy">{translateCopy("Hoy")}</option>
+                <option value="ayer">{translateCopy("Ayer")}</option>
+                <option value="semana">{translateCopy("Últimos 7 días")}</option>
+                <option value="mes">{translateCopy("Últimos 30 días")}</option>
               </select>
             )}
 
@@ -202,10 +259,14 @@ export const AuditView = () => {
               }
               className="text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-4 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#EA1D2C]"
             >
-              <option value="all">Todos los métodos</option>
-              {Object.values(PaymentMethod).map((m) => (
+              <option value="all">{translateCopy("Todos los métodos")}</option>
+              {[
+                PaymentMethod.Cash,
+                PaymentMethod.Card,
+                PaymentMethod.Transfer,
+              ].map((m) => (
                 <option key={m} value={m}>
-                  {paymentMethodLabels[m]}
+                  {translateCopy(paymentMethodLabels[m])}
                 </option>
               ))}
             </select>
@@ -213,12 +274,11 @@ export const AuditView = () => {
             {/* Exportar: solo Gerente */}
             {isGerente && (
               <button
-                onClick={handleExport}
+                onClick={handleExportPdf}
                 disabled={filteredPayments.length === 0}
-                className="bg-[#111827] hover:bg-gray-800 text-white font-bold py-2.5 px-5 rounded-xl shadow-sm transition-all text-sm disabled:opacity-40"
+                className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold py-2.5 px-5 rounded-xl shadow-sm transition-all text-sm disabled:opacity-40"
               >
-                Exportar CSV
-              </button>
+                 {translateCopy("Exportar PDF")} </button>
             )}
           </div>
         </div>
@@ -227,18 +287,16 @@ export const AuditView = () => {
         <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm max-w-sm">
           <div className="flex justify-between items-start mb-4">
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-              Total Confirmado
-            </h3>
+               {translateCopy("Total Confirmado")} </h3>
             <span className="p-2 bg-blue-50 text-blue-600 rounded-lg text-lg">
               💻
             </span>
           </div>
           <p className="text-3xl font-black text-[#111827]">
-            {loading ? "—" : `$${totalToday.toLocaleString("es-CO")}`}
+            {loading ? "—" : formatMoney(totalToday)}
           </p>
           <p className="text-xs text-gray-500 mt-2 font-medium">
-            Suma de todos los pagos confirmados.
-          </p>
+             {translateCopy("Suma de todos los pagos confirmados.")} </p>
         </div>
 
         {/* Desglose por método: ambos roles */}
@@ -253,11 +311,11 @@ export const AuditView = () => {
                   className={`w-2 h-2 rounded-full ${paymentMethodDotColor[method]}`}
                 ></span>
                 <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-                  {paymentMethodLabels[method]}
+                  {translateCopy(paymentMethodLabels[method])}
                 </span>
               </div>
               <p className="text-xl font-black text-[#111827]">
-                {loading ? "—" : `$${total.toLocaleString("es-CO")}`}
+                {loading ? "—" : formatMoney(total)}
               </p>
             </div>
           ))}
@@ -271,7 +329,7 @@ export const AuditView = () => {
               className={`rounded-2xl p-5 border shadow-sm ${paymentStatusBadgeClasses[status]}`}
             >
               <p className="text-xs font-bold uppercase tracking-wider mb-1">
-                {paymentStatusLabels[status]}
+                {translateCopy(paymentStatusLabels[status])}
               </p>
               <p className="text-2xl font-black">{loading ? "—" : count}</p>
             </div>
@@ -282,20 +340,19 @@ export const AuditView = () => {
         <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden flex-1">
           <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
             <h2 className="text-base font-bold text-[#111827]">
-              Historial de Movimientos
-            </h2>
+               {translateCopy("Historial de Movimientos")} </h2>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
+          <div className="max-h-[55vh] overflow-auto [scrollbar-width:thin]">
+            <table className="w-full min-w-[760px] text-left border-collapse">
+              <thead className="sticky top-0 z-10 bg-white">
                 <tr className="bg-white text-[10px] text-gray-400 uppercase tracking-widest border-b border-gray-100">
-                  <th className="px-6 py-4 font-bold">Hora</th>
-                  <th className="px-6 py-4 font-bold">Pedido</th>
-                  <th className="px-6 py-4 font-bold">Responsable</th>
-                  <th className="px-6 py-4 font-bold">Método</th>
-                  <th className="px-6 py-4 font-bold text-right">Ingreso</th>
-                  <th className="px-6 py-4 font-bold text-center">Estado</th>
-                  <th className="px-6 py-4 font-bold text-right">Acciones</th>
+                  <th className="px-6 py-4 font-bold">{translateCopy("Hora")}</th>
+                  <th className="px-6 py-4 font-bold">{translateCopy("Pedido")}</th>
+                  <th className="px-6 py-4 font-bold">{translateCopy("Responsable")}</th>
+                  <th className="px-6 py-4 font-bold">{translateCopy("Método")}</th>
+                  <th className="px-6 py-4 font-bold text-right">{translateCopy("Ingreso")}</th>
+                  <th className="px-6 py-4 font-bold text-center">{translateCopy("Estado")}</th>
+                  <th className="px-6 py-4 font-bold text-right">{translateCopy("Acciones")}</th>
                 </tr>
               </thead>
               <tbody className="text-sm divide-y divide-gray-50">
@@ -305,8 +362,7 @@ export const AuditView = () => {
                       colSpan={7}
                       className="px-6 py-8 text-center text-gray-400"
                     >
-                      Cargando movimientos...
-                    </td>
+                       {translateCopy("Cargando movimientos...")} </td>
                   </tr>
                 )}
                 {error && (
@@ -315,7 +371,7 @@ export const AuditView = () => {
                       colSpan={7}
                       className="px-6 py-8 text-center text-red-500"
                     >
-                      {error}
+                      {translateCopy(error)}
                     </td>
                   </tr>
                 )}
@@ -325,8 +381,7 @@ export const AuditView = () => {
                       colSpan={7}
                       className="px-6 py-8 text-center text-gray-400"
                     >
-                      Aún no hay pagos registrados.
-                    </td>
+                       {translateCopy("Aún no hay pagos registrados.")} </td>
                   </tr>
                 )}
                 {filteredPayments.map((p) => (
@@ -335,18 +390,25 @@ export const AuditView = () => {
                     className="hover:bg-gray-50/50 transition-colors"
                   >
                     <td className="px-6 py-4 text-xs font-bold text-gray-500">
-                      {new Date(p.paidAt).toLocaleTimeString("es-CO", {
+                      {formatColombiaDateTime(p.paidAt, getCurrentLocale(), {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
                     </td>
                     <td className="px-6 py-4 font-black text-[#111827]">
-                      <a
-                        href={`/orders?orderId=${p.orderId}`}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          rememberNavigationTarget(
+                            pendingNavigationKeys.order,
+                            p.orderId,
+                          );
+                          router.push("/orders");
+                        }}
                         className="hover:text-[#EA1D2C] hover:underline"
                       >
-                        #ORD-{p.orderId}
-                      </a>
+                        {translateCopy("Ver pedido")}
+                      </button>
                     </td>
                     <td className="px-6 py-4 text-xs text-gray-600">
                       {p.cashierName ?? "—"}
@@ -356,17 +418,17 @@ export const AuditView = () => {
                         <span
                           className={`w-2 h-2 rounded-full ${paymentMethodDotColor[p.method]}`}
                         ></span>
-                        {paymentMethodLabels[p.method]}
+                        {translateCopy(paymentMethodLabels[p.method])}
                       </span>
                     </td>
                     <td className="px-6 py-4 font-black text-gray-900 text-right">
-                      +${p.amount.toLocaleString("es-CO")}
+                      +{formatMoney(p.amount)}
                     </td>
                     <td className="px-6 py-4 text-center">
                       <span
                         className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold border ${paymentStatusBadgeClasses[p.status]}`}
                       >
-                        {paymentStatusLabels[p.status]}
+                        {translateCopy(paymentStatusLabels[p.status])}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -375,8 +437,7 @@ export const AuditView = () => {
                           onClick={() => openRefund(p)}
                           className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 border border-red-200 hover:bg-red-50 transition-colors"
                         >
-                          Reembolsar
-                        </button>
+                           {translateCopy("Reembolsar")} </button>
                       )}
                     </td>
                   </tr>
@@ -390,40 +451,36 @@ export const AuditView = () => {
       {/* Modal de reembolso: ambos roles */}
       <Dialog
         isOpen={!!refundTarget}
-        title="Reembolsar Pago"
+        title={translateCopy("Reembolsar Pago")}
         subtitle={
-          refundTarget
-            ? `Pedido #ORD-${refundTarget.orderId} — $${refundTarget.amount.toLocaleString("es-CO")}`
-            : ""
+          refundTarget ? formatMoney(refundTarget.amount) : ""
         }
         onClose={() => setRefundTarget(null)}
       >
         <div className="space-y-4">
           <div>
             <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
-              Motivo del reembolso
-            </label>
+               {translateCopy("Motivo del reembolso")} </label>
             <textarea
               value={refundReason}
               onChange={(e) => setRefundReason(e.target.value)}
               rows={3}
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#EA1D2C]"
-              placeholder="Ej: Producto no entregado"
+              placeholder={translateCopy("Ej: Producto no entregado")}
             />
           </div>
           <div className="flex justify-end gap-3">
             <button
-              onClick={() => setRefundTarget(null)}
+              onClick={handleCancelRefund}
               className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
             >
-              Cancelar
-            </button>
+               {translateCopy("Cancelar")} </button>
             <button
               onClick={handleRefund}
               disabled={refunding || !refundReason.trim()}
               className="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors disabled:opacity-50"
             >
-              {refunding ? "Procesando..." : "Confirmar reembolso"}
+              {refunding ? translateCopy("Procesando...") : translateCopy("Confirmar reembolso")}
             </button>
           </div>
         </div>
