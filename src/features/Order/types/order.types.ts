@@ -58,6 +58,9 @@ export interface Order {
   status: OrderStatus;
   subTotal: number;
   tax: number;
+  taxRate: number;
+  taxIncludedInPrice: boolean;
+  deliveryFee: number;
   total: number;
   notes: string | null;
   createdAt: string;
@@ -91,6 +94,8 @@ export interface CancelOrderPayload {
 export interface OrderFilter {
   branchId?: number;
   status?: OrderStatus;
+  fromDate?: string;
+  toDate?: string;
 }
 
 export interface CreateOrderDetailPayload {

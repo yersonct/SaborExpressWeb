@@ -1,14 +1,11 @@
 export interface BranchOperationalSettings {
   branchId: number;
-  openingTime: string; // "HH:mm"
+  openingTime: string; // "HH:mm" o "" si aún no se configura
   closingTime: string;
   taxRate: number;
   deliveryFee: number;
-  suggestedTipPercent: number;
   deliveryRadiusKm: number;
-  minOrderAmount: number;
-  acceptsDelivery: boolean;
-  acceptsDineIn: boolean;
+  maxActiveDeliveriesPerCourier: number;
   updatedAt: string | null;
   isDefault: boolean;
 }

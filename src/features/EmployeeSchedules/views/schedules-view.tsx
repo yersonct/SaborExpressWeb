@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { translateCopy, getCurrentLocale } from "@/config/copy-translations";
+import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useEmployeeSchedules } from "../hooks/use-employee-schedules";
 import { Dialog } from "@/components/ui/dialog";
 import { employeeScheduleService } from "../services/employee-schedule.service";
@@ -8,6 +10,8 @@ import { useEmployees } from "@/features/Employees/hooks/use-employees";
 import { useRoles } from "@/features/Employees/hooks/use-roles";
 import { useMyBranch } from "@/features/branches/hooks/use-my-branch";
 import { useAuth } from "@/features/auth/hooks/use-auth";
+import { useRealtimeEvents } from "@/features/Dashboard/hooks/use-realtime-events";
+import { useAdminDataChanged } from "@/features/Dashboard/hooks/use-admin-data-changed";
 import { branchService } from "@/features/branches/services/branch.service";
 import type { Branch } from "@/features/branches/types/branch.types";
 import type {
@@ -15,25 +19,37 @@ import type {
   EmployeeSchedule,
 } from "../types/employee-schedule.types";
 import { ROUTES } from "@/config/routes";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { branchOperationalSettingsService } from "@/features/Configurations/services/branch-operational-settings.service";
+import {
+  consumeNavigationTarget,
+  pendingNavigationKeys,
+  rememberNavigationTarget,
+} from "@/config/pending-navigation";
 
 const emptyForm: CreateEmployeeSchedulePayload = {
   employeeId: 0,
   roleId: 0,
   branchId: 0,
-  shiftDate: new Date().toISOString().slice(0, 10),
+  shiftDate: getColombiaNow().dateISO,
   startTime: "08:00",
   endTime: "17:00",
 };
 
+// Normaliza valores del API (HH:mm:ss) al formato que acepta <input type="time">.
+function toTimeInputValue(time: string): string {
+  const [hours = "00", minutes = "00"] = time.split(":");
+  return `${hours.padStart(2, "0")}:${minutes.padStart(2, "0")}`;
+}
+
 // Convierte "HH:mm" o "HH:mm:ss" a formato 12h con AM/PM, ej: "08:00" -> "8:00 a. m."
 function formatTime12h(time: string): string {
-  const [hoursStr, minutesStr] = time.split(":");
+  const [hoursStr, minutesStr] = toTimeInputValue(time).split(":");
   const hours = Number(hoursStr);
   const minutes = minutesStr ?? "00";
   const date = new Date();
   date.setHours(hours, Number(minutes), 0, 0);
-  return date.toLocaleTimeString("es-CO", {
+  return date.toLocaleTimeString(getCurrentLocale(), {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
@@ -43,7 +59,7 @@ function formatTime12h(time: string): string {
 // Ya no es un arreglo fijo — se calcula según el día real de cada fecha,
 // porque la semana ahora puede arrancar en cualquier día (no solo lunes).
 function formatDayLabel(date: Date): string {
-  const label = date.toLocaleDateString("es-CO", { weekday: "short" });
+  const label = date.toLocaleDateString(getCurrentLocale(), { weekday: "short" });
   // Ej: "dom." -> "Dom", "lun." -> "Lun"
   const clean = label.replace(".", "");
   return clean.charAt(0).toUpperCase() + clean.slice(1);
@@ -56,13 +72,23 @@ function toISODate(date: Date): string {
 }
 
 function formatDayHeader(date: Date): string {
-  return date.toLocaleDateString("es-CO", { day: "2-digit", month: "short" });
+  return date.toLocaleDateString(getCurrentLocale(), { day: "2-digit", month: "short" });
 }
 // Detecta si un empleado tiene rol Gerente, sin importar cómo venga
 // estructurado el campo en el objeto (roleName, role.name, role, etc.)
+// Solo es el Gerente semilla si tiene el rol GERENTE y NO tiene sede.
+// Un Gerente asignado por turno sí tiene sede, así que se muestra.
 function isGerenteRole(emp: any): boolean {
   const roles: string[] = emp.roleNames ?? [];
-  return roles.some((r) => r.toUpperCase().includes("GERENTE"));
+  return (
+    roles.some((r) => r.toUpperCase().includes("GERENTE")) &&
+    (emp.branchId === null || emp.branchId === undefined)
+  );
+}
+
+function isManagementRoleName(name: string | null | undefined): boolean {
+  const normalizedName = name?.toUpperCase();
+  return normalizedName === "GERENTE" || normalizedName === "ADMINISTRADOR";
 }
 function isPastDate(dateISO: string): boolean {
   const today = new Date();
@@ -70,13 +96,53 @@ function isPastDate(dateISO: string): boolean {
   const target = new Date(`${dateISO}T00:00:00`);
   return target < today;
 }
+
+// Fecha y hora actuales en Colombia, igual que el back (ColombiaTime),
+// sin depender de la zona horaria del computador del administrador.
+function getColombiaNow(): { dateISO: string; seconds: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const get = (type: string) =>
+    parts.find((p) => p.type === type)?.value ?? "00";
+  return {
+    dateISO: `${get("year")}-${get("month")}-${get("day")}`,
+    seconds:
+      Number(get("hour")) * 3600 +
+      Number(get("minute")) * 60 +
+      Number(get("second")),
+  };
+}
+
+// Turno de HOY cuya hora de fin ya pasó
+function isShiftEnded(
+  s: { shiftDate: string; endTime: string },
+  now: { dateISO: string; seconds: number },
+): boolean {
+  if (s.shiftDate !== now.dateISO) return false;
+  const [h, m, sec] = s.endTime.split(":").map(Number);
+  return now.seconds > h * 3600 + m * 60 + (sec || 0);
+}
+// "HH:mm" siempre con cero a la izquierda, así que se pueden comparar como texto.
 export const SchedulesView = () => {
-
-
+  const { t } = useTranslation();
   const { session } = useAuth();
-  const isGerente = session?.roles.includes("GERENTE");
+  const isGerente = session?.roles.some((role) => role.toUpperCase() === "GERENTE") ?? false;
   const router = useRouter();
-  const searchParams = useSearchParams();
+
+  // Se reevalúa cada 1 s para que un turno cambie de color justo al terminar
+  const [now, setNow] = useState(getColombiaNow);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(getColombiaNow()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Administrador: su sede fija. Gerente: no aplica (elige de una lista).
   const { branch: myBranch } = useMyBranch(!!session && !isGerente);
@@ -89,14 +155,29 @@ export const SchedulesView = () => {
   const [transferError, setTransferError] = useState("");
   const [transferSuccessMsg, setTransferSuccessMsg] = useState("");
   // Si es Gerente, carga TODAS las sedes para que elija.
-  useEffect(() => {
-    if (isGerente) {
-      branchService.getAll().then((branches) => {
-        setAllBranches(branches);
-        if (branches.length > 0) setSelectedBranchId(branches[0].id);
-      });
+  const loadAllBranches = useCallback(async () => {
+    if (!isGerente) return;
+    try {
+      const branches = await branchService.getAll();
+      setAllBranches(branches);
+      setSelectedBranchId((currentId) =>
+        currentId != null && branches.some((branch) => branch.id === currentId)
+          ? currentId
+          : branches[0]?.id ?? null,
+      );
+    } catch {
+      // Se conservan los datos ya visibles si una recarga en vivo falla.
     }
   }, [isGerente]);
+  useEffect(() => {
+    void loadAllBranches();
+  }, [loadAllBranches]);
+  useAdminDataChanged(
+    session?.userId ?? null,
+    ["Branches"],
+    () => void loadAllBranches(),
+    () => void loadAllBranches(),
+  );
 
   // Si es Administrador, usa directamente su propia sede.
   useEffect(() => {
@@ -107,6 +188,16 @@ export const SchedulesView = () => {
 
   const branchId = selectedBranchId;
 
+  const PAGE_SIZE = 10;
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+
+  // Al cambiar de sede, vuelve a la primera página y limpia la búsqueda
+  useEffect(() => {
+    setPage(1);
+    setSearch("");
+  }, [branchId]);
+
   const {
     schedules,
     loading,
@@ -116,8 +207,91 @@ export const SchedulesView = () => {
     deleteSchedule,
     refetch,
   } = useEmployeeSchedules(branchId);
-  const { employees } = useEmployees("activo");
+  const { employees, refetch: refetchEmployees } = useEmployees("activo");
   const { roles } = useRoles();
+  // Horario de la sede (viene de Configuración; aquí solo se lee)
+  const [branchHours, setBranchHours] = useState<{
+    branchId: number;
+    open: string;
+    close: string;
+  } | null>(null);
+  const [noHoursAlert, setNoHoursAlert] = useState(false);
+
+  const loadBranchHours = useCallback(async (id: number) => {
+    try {
+      const s = await branchOperationalSettingsService.get(id);
+      if (s.isDefault || !s.openingTime || !s.closingTime) {
+        setBranchHours(null);
+        return null;
+      }
+      const hours = {
+        branchId: id,
+        open: toTimeInputValue(s.openingTime),
+        close: toTimeInputValue(s.closingTime),
+      };
+      setBranchHours(hours);
+      return hours;
+    } catch {
+      setBranchHours(null);
+      return null;
+    }
+  }, []);
+
+  const refreshBranchHours = useCallback(
+    (eventName?: string, ...args: unknown[]) => {
+      if (
+        eventName === "BranchOperationalSettingsChanged" &&
+        branchId != null &&
+        Number(args[0]) === branchId
+      ) {
+        void Promise.all([loadBranchHours(branchId), refetch()]);
+      }
+    },
+    [branchId, loadBranchHours, refetch],
+  );
+  const refreshBranchHoursAfterReconnect = useCallback(() => {
+    if (branchId != null) {
+      void loadBranchHours(branchId);
+      void refetch();
+    }
+  }, [branchId, loadBranchHours, refetch]);
+  useRealtimeEvents(
+    session?.userId ?? null,
+    ["BranchOperationalSettingsChanged"],
+    refreshBranchHours,
+    refreshBranchHoursAfterReconnect,
+  );
+
+  useEffect(() => {
+    if (branchId == null) {
+      setBranchHours(null);
+      return;
+    }
+    void loadBranchHours(branchId);
+  }, [branchId, loadBranchHours]);
+
+  // Abre "Nuevo turno" con el horario de la sede, o avisa si no está configurado
+  const openCreateModal = async (
+    employeeId: number,
+    targetBranchId: number,
+    shiftDate: string,
+  ) => {
+    const hours = await loadBranchHours(targetBranchId);
+    if (!hours) {
+      setNoHoursAlert(true);
+      return;
+    }
+    setForm({
+      ...emptyForm,
+      branchId: targetBranchId,
+      employeeId,
+      shiftDate,
+      startTime: hours.open,
+      endTime: hours.close,
+    });
+    setFormError("");
+    setIsModalOpen(true);
+  };
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -137,7 +311,7 @@ export const SchedulesView = () => {
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkForm, setBulkForm] = useState(emptyBulkForm);
   const [bulkSaving, setBulkSaving] = useState(false);
-  const [bulkError, setBulkError] = useState("");
+  const [bulkError, setBulkError] = useState<string[]>([]);
 
   // --- Semana seleccionada ---
   function startOfToday(): Date {
@@ -168,42 +342,88 @@ export const SchedulesView = () => {
   };
   const goToThisWeek = () => setWeekStart(startOfToday());
 
+  const employeesById = new Map<number, any>(
+    employees.map((employee: any) => [employee.id, employee] as const),
+  );
+  const isHistoricalAtSelectedBranch = (schedule: EmployeeSchedule) => {
+    const currentBranchId =
+      schedule.employeeBranchId ??
+      employeesById.get(schedule.employeeId)?.branchId ??
+      null;
+    return currentBranchId !== null && currentBranchId !== schedule.branchId;
+  };
+
+  // La sede guardada en cada turno define dónde se trabaja ese día. Un cambio
+  // puntual de sede mueve solo ese turno, aunque el empleado conserve su sede habitual.
+  const schedulesForSelectedBranch = schedules;
+
   // Solo turnos dentro de la semana visible
-  const weekSchedules = schedules.filter((s) => {
+  const weekSchedules = schedulesForSelectedBranch.filter((s) => {
     const shiftDate = new Date(`${s.shiftDate}T00:00:00`);
     return shiftDate >= weekStart && shiftDate <= weekEnd;
   });
 
-  // Empleados de esta sede (con o sin turnos asignados esta semana)
-  // Igual que con Productos: null = disponible para cualquier sede.
-  // Solo excluimos empleados que tienen una sede fija DISTINTA a la seleccionada.
-// Empleados a mostrar en la tabla de esta sede: los asignados actualmente
-// a ella, MÁS cualquier empleado que tenga turnos (pasados o futuros)
-// registrados con este branchId — así el historial de alguien que ya
-// fue trasladado sigue siendo visible al consultar su sede anterior.
-const employeeIdsWithScheduleHere = new Set(schedules.map((s) => s.employeeId));
+  // Un empleado trasladado aparece en semanas pasadas solo si tuvo turnos
+  // asignados en esos días dentro de la sede que se está consultando.
+  const historicalWeekSchedules = weekSchedules.filter(
+    (schedule) =>
+      isHistoricalAtSelectedBranch(schedule) && schedule.shiftDate < now.dateISO,
+  );
+  const historicalEmployeeIds = new Set(
+    historicalWeekSchedules.map((schedule) => schedule.employeeId),
+  );
+  const branchEmployeesById = new Map<number, any>(
+    employees
+      .filter(
+        (emp: any) =>
+          !isGerenteRole(emp) &&
+          (emp.branchId === branchId || emp.branchId === null),
+      )
+      .map((emp: any) => [emp.id, emp] as const),
+  );
+  weekSchedules.forEach((schedule) => {
+    if (branchEmployeesById.has(schedule.employeeId)) return;
+    branchEmployeesById.set(schedule.employeeId, {
+      id: schedule.employeeId,
+      name: schedule.employeeName,
+      lastName: null,
+      branchId: schedule.employeeBranchId,
+    });
+  });
+  const branchEmployees = [...branchEmployeesById.values()];
 
-const branchEmployees = employees.filter(
-  (emp: any) =>
-    !isGerenteRole(emp) &&
-    (emp.branchId === branchId ||
-      emp.branchId === null ||
-      employeeIdsWithScheduleHere.has(emp.id)),
-);
+  const filteredEmployees = branchEmployees.filter((emp: any) =>
+    `${emp.name} ${emp.lastName ?? ""}`
+      .toLowerCase()
+      .includes(search.trim().toLowerCase()),
+  );
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredEmployees.length / PAGE_SIZE),
+  );
+  const currentPage = Math.min(page, totalPages);
+  const visibleEmployees = filteredEmployees.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
 
-// Ya no se excluyen Gerente/Administrador: sí se pueden asignar desde un
-// turno, igual que cualquier otro rol operativo.
-const operationalRoles = roles;
+  // Los roles de gestión solo los puede asignar el Gerente.
+  // "Cliente" nunca: es un rol interno del sistema, no un cargo de turno.
+  const operationalRoles = roles.filter(
+    (role) =>
+      role.name.toUpperCase() !== "CLIENTE" &&
+      (isGerente || !isManagementRoleName(role.name)),
+  );
 
   // Empleados sin ningún turno esta semana (para el selector del modal,
   // igual que antes evitamos duplicar turnos por accidente en el mismo día)
-const employeesWithoutSchedule = employees.filter(
-  (emp: any) =>
-    !isGerenteRole(emp) &&
-    !schedules.some(
-      (s) => s.employeeId === emp.id && s.shiftDate === form.shiftDate,
-    ),
-);
+  const employeesWithoutSchedule = employees.filter(
+    (emp: any) =>
+      !isGerenteRole(emp) &&
+      !schedules.some(
+        (s) => s.employeeId === emp.id && s.shiftDate === form.shiftDate,
+      ),
+  );
 
   // Lookup rápido: empleadoId -> fecha ISO -> turnos de ese día
   const scheduleLookup = new Map<string, EmployeeSchedule[]>();
@@ -213,14 +433,15 @@ const employeesWithoutSchedule = employees.filter(
     list.push(s);
     scheduleLookup.set(key, list);
   });
-  // Si venimos desde "Registrar Empleado" con ?employeeId=X, abrimos el
+  // Si venimos desde "Registrar Empleado", abrimos el modal de ese empleado.
   // modal automáticamente con ese empleado y SU sede real (no la que
   // estuviera puesta por defecto en el dropdown).
   useEffect(() => {
-    const employeeIdParam = searchParams.get("employeeId");
-    if (!employeeIdParam || employees.length === 0) return;
-
-    const employeeId = Number(employeeIdParam);
+    if (employees.length === 0) return;
+    const employeeId = consumeNavigationTarget(
+      pendingNavigationKeys.scheduleEmployee,
+    );
+    if (employeeId === null) return;
     const employee = employees.find((emp: any) => emp.id === employeeId);
     if (!employee) return;
 
@@ -231,14 +452,13 @@ const employeesWithoutSchedule = employees.filter(
       setSelectedBranchId(employeeBranchId);
     }
 
-    setForm({ ...emptyForm, branchId: employeeBranchId, employeeId });
-    setFormError("");
-    setIsModalOpen(true);
+    openCreateModal(employeeId, employeeBranchId, emptyForm.shiftDate);
 
-    router.replace("/schedules");
-  }, [searchParams, employees, isGerente, selectedBranchId, branchId]);
+  }, [employees, isGerente, selectedBranchId, branchId]);
 
   const selectedEmployee = employees.find((e: any) => e.id === form.employeeId);
+  const selectedBranchHours =
+    branchHours?.branchId === branchId ? branchHours : null;
   const selectedRole = roles.find((r) => r.id === form.roleId);
   const needsCvWarning =
     !!selectedRole?.requiresCv && selectedEmployee && !selectedEmployee.hasCv;
@@ -275,6 +495,18 @@ const employeesWithoutSchedule = employees.filter(
     setSaving(true);
     setFormError("");
     try {
+      const hours = await loadBranchHours(form.branchId);
+      if (!hours) {
+        setNoHoursAlert(true);
+        setSaving(false);
+        return;
+      }
+      const scheduleForm = {
+        ...form,
+        startTime: hours.open,
+        endTime: hours.close,
+      };
+
       const conflictMessage = await checkCrossBranchConflict(
         form.employeeId,
         form.shiftDate,
@@ -288,35 +520,44 @@ const employeesWithoutSchedule = employees.filter(
       }
 
       if (editingId) {
-        await updateSchedule(editingId, form);
+        await updateSchedule(editingId, scheduleForm);
         setIsModalOpen(false);
         setEditingId(null);
         return;
       }
 
       const employeeIdCreated = form.employeeId;
-      await createSchedule(form);
+      await createSchedule(scheduleForm);
       setIsModalOpen(false);
-      router.push(`${ROUTES.employees}?editEmployeeId=${employeeIdCreated}`);
+      rememberNavigationTarget(
+        pendingNavigationKeys.editEmployee,
+        employeeIdCreated,
+      );
+      router.push(ROUTES.employees);
     } catch (err) {
       setFormError(
-        err instanceof Error ? err.message : "No se pudo guardar el turno",
+        err instanceof Error ? translateCopy(err.message) : "No se pudo guardar el turno",
       );
     } finally {
       setSaving(false);
     }
   };
 
-  const openEditModal = (s: EmployeeSchedule) => {
+  const openEditModal = async (s: EmployeeSchedule) => {
     if (isPastDate(s.shiftDate)) return; // no se editan turnos de fechas pasadas
+    const hours = await loadBranchHours(s.branchId);
+    if (!hours) {
+      setNoHoursAlert(true);
+      return;
+    }
     setEditingId(s.id);
     setForm({
       employeeId: s.employeeId,
       roleId: s.roleId,
       branchId: s.branchId,
       shiftDate: s.shiftDate,
-      startTime: s.startTime.slice(0, 5),
-      endTime: s.endTime.slice(0, 5),
+      startTime: hours.open,
+      endTime: hours.close,
     });
     setFormError("");
     setIsModalOpen(true);
@@ -325,18 +566,23 @@ const employeesWithoutSchedule = employees.filter(
   // --- Guardado masivo: mismo turno para varios días de la semana ---
   const handleBulkSubmit = async () => {
     if (!bulkForm.roleId) {
-      setBulkError("Selecciona un rol.");
+      setBulkError(["Selecciona un rol."]);
       return;
     }
     if (bulkForm.days.length === 0) {
-      setBulkError("Selecciona al menos un día.");
+      setBulkError(["Selecciona al menos un día."]);
       return;
     }
     if (!branchId) {
-      setBulkError("Selecciona una sede.");
+      setBulkError(["Selecciona una sede."]);
       return;
     }
-
+    const hours = await loadBranchHours(branchId);
+    if (!hours) {
+      setIsBulkModalOpen(false);
+      setNoHoursAlert(true);
+      return;
+    }
     let targetEmployees =
       bulkForm.employeeId === 0
         ? branchEmployees
@@ -355,16 +601,16 @@ const employeesWithoutSchedule = employees.filter(
     }
 
     if (targetEmployees.length === 0) {
-      setBulkError(
+      setBulkError([
         skippedForCv.length > 0
           ? `Ningún empleado seleccionado tiene hoja de vida cargada: ${skippedForCv.join(", ")}.`
           : "No hay empleados para asignar.",
-      );
+      ]);
       return;
     }
 
     setBulkSaving(true);
-    setBulkError("");
+    setBulkError([]);
     try {
       // Traemos, UNA vez por empleado del lote, todos sus turnos en
       // cualquier sede (no solo la actual), para detectar choques.
@@ -404,25 +650,43 @@ const employeesWithoutSchedule = employees.filter(
       });
 
       if (jobs.length === 0) {
-        setBulkError(
-          "Todos los empleados seleccionados ya tienen turno en esos días.",
-        );
+        setBulkError(["Todos los empleados seleccionados ya tienen turno en esos días."]);
         setBulkSaving(false);
         return;
       }
 
-      const results = await Promise.allSettled(
-        jobs.map((job) =>
-          employeeScheduleService.create({
-            employeeId: job.emp.id,
-            roleId: bulkForm.roleId,
-            branchId: branchId,
-            shiftDate: job.dateISO,
-            startTime: bulkForm.startTime,
-            endTime: bulkForm.endTime,
+      // Los días de un mismo empleado se crean en orden, uno por uno:
+      // en paralelo chocaban al crear el rol del empleado al mismo tiempo.
+      const jobsByEmployee = new Map<number, typeof jobs>();
+      jobs.forEach((job) => {
+        const list = jobsByEmployee.get(job.emp.id) ?? [];
+        list.push(job);
+        jobsByEmployee.set(job.emp.id, list);
+      });
+
+      const results: PromiseSettledResult<unknown>[] = (
+        await Promise.all(
+          Array.from(jobsByEmployee.values()).map(async (empJobs) => {
+            const out: PromiseSettledResult<unknown>[] = [];
+            for (const job of empJobs) {
+              try {
+                const value = await employeeScheduleService.create({
+                  employeeId: job.emp.id,
+                  roleId: bulkForm.roleId,
+                  branchId: branchId,
+                  shiftDate: job.dateISO,
+                  startTime: hours.open,
+                  endTime: hours.close,
+                });
+                out.push({ status: "fulfilled", value });
+              } catch (reason) {
+                out.push({ status: "rejected", reason });
+              }
+            }
+            return out;
           }),
-        ),
-      );
+        )
+      ).flat();
 
       const failed = results.filter(
         (r): r is PromiseRejectedResult => r.status === "rejected",
@@ -449,22 +713,26 @@ const employeesWithoutSchedule = employees.filter(
         setIsBulkModalOpen(false);
       } else {
         const successCount = results.length - failed.length;
-        let message = `Se crearon ${successCount} de ${results.length} turnos.`;
+        const messages = [`Se crearon ${successCount} de ${results.length} turnos.`];
         if (failed.length > 0) {
-          message += ` ${failed.length} fallaron: ${failureReasons.join(" | ")}`;
+          messages.push(`${failed.length} fallaron: ${failureReasons.join(" | ")}`);
         }
         if (skippedForCv.length > 0) {
-          message += ` Omitidos por falta de CV: ${skippedForCv.join(", ")}.`;
+          messages.push(`Omitidos por falta de CV: ${skippedForCv.join(", ")}.`);
         }
         if (skippedForConflict.length > 0) {
-          message += ` Omitidos por choque de sede: ${skippedForConflict.join("; ")}.`;
+          messages.push(
+            ...skippedForConflict.map(
+              (conflict) => `Omitido por choque de sede: ${conflict}`,
+            ),
+          );
         }
-        setBulkError(message);
+        setBulkError(messages);
       }
     } catch (err) {
-      setBulkError(
-        err instanceof Error ? err.message : "No se pudo asignar la semana",
-      );
+      setBulkError([
+        err instanceof Error ? translateCopy(err.message) : "No se pudo asignar la semana",
+      ]);
     } finally {
       setBulkSaving(false);
     }
@@ -526,29 +794,29 @@ const employeesWithoutSchedule = employees.filter(
       setTransferSuccessMsg(
         `Se trasladaron ${result.transferredSchedules} turno(s) futuro(s) a la nueva sede.`,
       );
-      await refetch();
+      await Promise.all([refetch(), refetchEmployees()]);
     } catch (err) {
       setTransferError(
-        err instanceof Error ? err.message : "No se pudo trasladar al empleado",
+        err instanceof Error ? translateCopy(err.message) : "No se pudo trasladar al empleado",
       );
     } finally {
       setTransferring(false);
     }
   };
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-[#081A38]">Turnos</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#081A38]">
+            {t("pageTitles.schedules")}
+          </h1>
           <p className="text-base text-gray-500">
-            Asigna a cada empleado un turno con rol activo, sede y horario.
-          </p>
+             {translateCopy("Asigna a cada empleado un turno con rol activo, sede y horario.")} </p>
 
           {isGerente && (
             <div className="mt-3">
               <label className="text-xs font-semibold text-gray-500 mr-2">
-                Sede:
-              </label>
+                 {translateCopy("Sede:")} </label>
               <select
                 className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 bg-white"
                 value={selectedBranchId ?? ""}
@@ -563,11 +831,11 @@ const employeesWithoutSchedule = employees.filter(
             </div>
           )}
 
-          <div className="flex items-center gap-2 mt-3">
+          <div className="flex flex-wrap items-center gap-2 mt-3">
             <button
               onClick={goToPrevWeek}
-              className="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50"
-              aria-label="Semana anterior"
+              className="schedule-week-nav w-8 h-8 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50"
+              aria-label={translateCopy("Semana anterior")}
             >
               ←
             </button>
@@ -576,8 +844,8 @@ const employeesWithoutSchedule = employees.filter(
             </span>
             <button
               onClick={goToNextWeek}
-              className="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50"
-              aria-label="Semana siguiente"
+              className="schedule-week-nav w-8 h-8 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50"
+              aria-label={translateCopy("Semana siguiente")}
             >
               →
             </button>
@@ -585,41 +853,62 @@ const employeesWithoutSchedule = employees.filter(
               onClick={goToThisWeek}
               className="text-xs font-semibold text-[#EA1D2C] hover:underline ml-1"
             >
-              Hoy
-            </button>
+               {translateCopy("Hoy")} </button>
           </div>
         </div>
         <button
-          onClick={() => {
-            setBulkForm(emptyBulkForm);
-            setBulkError("");
+          onClick={async () => {
+            if (!branchId) return;
+            const hours = await loadBranchHours(branchId);
+            if (!hours) {
+              setNoHoursAlert(true);
+              return;
+            }
+            setBulkForm({
+              ...emptyBulkForm,
+              startTime: hours.open,
+              endTime: hours.close,
+            });
+            setBulkError([]);
             setIsBulkModalOpen(true);
           }}
           disabled={!branchId}
-          className="bg-[#EA1D2C] text-white px-5 py-2.5 rounded-lg font-semibold hover:opacity-90 disabled:opacity-40"
+          className="w-full lg:w-auto bg-[#EA1D2C] text-white px-5 py-2.5 rounded-lg font-semibold hover:opacity-90 disabled:opacity-40"
         >
-          + Asignar semana completa
-        </button>
+           {translateCopy("+ Asignar semana completa")} </button>
       </div>
 
       {error && (
         <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
-          {error}
+          {translateCopy(error)}
         </div>
+      )}
+
+      {branchEmployees.length > PAGE_SIZE && (
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+          placeholder={translateCopy("Buscar empleado...")}
+          className="w-full sm:w-72 border border-gray-300 rounded-lg px-3 py-2 mb-3 text-sm text-gray-900 bg-white"
+        />
       )}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
         {loading ? (
-          <p className="text-center py-10 text-gray-400">Cargando turnos...</p>
+          <p className="text-center py-10 text-gray-400">{translateCopy("Cargando turnos...")}</p>
         ) : branchEmployees.length === 0 ? (
           <p className="text-center py-10 text-gray-400">
-            No hay empleados activos en esta sede.
-          </p>
+             {translateCopy("No hay empleados activos en esta sede.")} </p>
         ) : (
-          <table className="w-full text-base table-fixed">
+          <table className="w-full min-w-[1000px] text-sm xl:text-base table-fixed">
             <thead className="bg-gray-50 text-gray-500 uppercase text-sm">
               <tr>
-                <th className="text-left px-4 py-4 w-44">Empleado</th>
+                <th className="sticky left-0 z-10 bg-gray-50 text-left px-3 xl:px-4 py-4 w-36 xl:w-44">
+                   {translateCopy("Empleado")} </th>
                 {weekDays.map((d, i) => (
                   <th key={i} className="text-center px-2 py-4">
                     <div className="text-sm">{formatDayLabel(d)}</div>
@@ -631,24 +920,28 @@ const employeesWithoutSchedule = employees.filter(
               </tr>
             </thead>
             <tbody>
-              {branchEmployees.map((emp: any) => (
+              {visibleEmployees.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="text-center py-10 text-gray-400">
+                     {translateCopy("Ningún empleado coincide con la búsqueda.")} </td>
+                </tr>
+              )}
+              {visibleEmployees.map((emp: any) => (
                 <tr key={emp.id} className="border-t border-gray-100">
-                  <td className="px-4 py-4">
-                    <p className="font-semibold text-[#081A38] text-base">
+                  <td className="sticky left-0 z-10 bg-white px-3 xl:px-4 py-4">
+                    <p className="font-semibold text-[#081A38] text-sm xl:text-base">
                       {emp.name} {emp.lastName ?? ""}
                     </p>
-                    {emp.branchId !== branchId && emp.branchId !== null && (
+                    {historicalEmployeeIds.has(emp.id) && (
                       <p className="text-[10px] text-gray-400 italic">
-                        Trasladado a otra sede — solo historial
-                      </p>
+                         {translateCopy("Trasladado a otra sede — solo historial")} </p>
                     )}
                     {isGerente && emp.branchId === branchId && (
                       <button
                         onClick={() => openTransferModal(emp)}
                         className="text-[10px] font-semibold text-gray-400 hover:text-[#EA1D2C] transition-colors mt-0.5"
                       >
-                        Trasladar de sede
-                      </button>
+                         {translateCopy("Trasladar de sede")} </button>
                     )}
                   </td>
                   {weekDays.map((d, i) => {
@@ -658,57 +951,80 @@ const employeesWithoutSchedule = employees.filter(
                     return (
                       <td key={i} className="text-center px-1 py-2">
                         {dayShifts.length === 0 ? (
-                          <button
-                            onClick={() => {
-                              if (isPastDate(dateISO)) return; // no se crean turnos en fechas pasadas
-                              setForm({
-                                ...emptyForm,
-                                branchId: branchId ?? 0,
-                                employeeId: emp.id,
-                                shiftDate: dateISO,
-                              });
-                              setFormError("");
-                              setIsModalOpen(true);
-                            }}
-                            disabled={isPastDate(dateISO)}
-                            className="w-full text-gray-300 hover:text-[#EA1D2C] text-lg py-3 rounded-md hover:bg-red-50 transition-colors disabled:opacity-20 disabled:hover:bg-transparent disabled:cursor-not-allowed"
-                          >
-                            +
-                          </button>
+                          historicalEmployeeIds.has(emp.id) ? null : (
+                            <button
+                              onClick={() => {
+                                if (isPastDate(dateISO)) return; // no se crean turnos en fechas pasadas
+                                openCreateModal(emp.id, branchId ?? 0, dateISO);
+                              }}
+                              disabled={isPastDate(dateISO)}
+                              className="w-full text-gray-300 hover:text-[#EA1D2C] text-lg py-3 rounded-md hover:bg-red-50 transition-colors disabled:opacity-20 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                            >
+                              +
+                            </button>
+                          )
                         ) : (
                           dayShifts.map((s) => {
                             const locked = isPastDate(s.shiftDate);
+                            const usesCurrentBranchHours =
+                              selectedBranchHours !== null &&
+                              s.shiftDate >= now.dateISO;
+                            const startTime = usesCurrentBranchHours
+                              ? selectedBranchHours.open
+                              : s.startTime;
+                            const endTime = usesCurrentBranchHours
+                              ? selectedBranchHours.close
+                              : s.endTime;
+                            const endedToday =
+                              !locked &&
+                              isShiftEnded({ shiftDate: s.shiftDate, endTime }, now);
                             return (
                               <div
                                 key={s.id}
-                                className={`rounded-lg px-2 py-2 text-sm font-semibold mb-1 relative group ${
+                                title={
+                                  s.isOwnLockedShift
+                                    ? translateCopy("No puedes editar ni eliminar tus propios turnos como Gerente o Administrador.")
+                                    : endedToday
+                                    ? translateCopy("Turno de hoy finalizado")
+                                    : undefined
+                                }
+                                className={`rounded-lg px-1 py-1.5 xl:px-2 xl:py-2 text-xs xl:text-sm leading-tight break-words font-semibold mb-1 relative group ${
                                   locked
                                     ? "bg-gray-100 text-gray-400"
-                                    : "bg-[#0F2F6B]/10 text-[#0F2F6B]"
+                                    : endedToday
+                                      ? "bg-amber-100 text-amber-700"
+                                      : "bg-[#0F2F6B]/10 text-[#0F2F6B]"
                                 }`}
                               >
                                 <div>
-                                  {formatTime12h(s.startTime)} –{" "}
-                                  {formatTime12h(s.endTime)}
+                                  {formatTime12h(startTime)} –{" "}
+                                  {formatTime12h(endTime)}
                                 </div>
                                 <div
-                                  className={`text-xs font-normal mt-0.5 ${locked ? "text-gray-400" : "text-[#0F2F6B]/70"}`}
+                                  className={`text-xs font-normal mt-0.5 ${
+                                    locked
+                                      ? "text-gray-400"
+                                      : endedToday
+                                        ? "text-amber-700/70"
+                                        : "text-[#0F2F6B]/70"
+                                  }`}
                                 >
-                                  {s.roleName}
+                                  {translateCopy(s.roleName)}
                                 </div>
-                                {!locked && (
-                                  <div className="absolute -top-1.5 -right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {!locked && !s.isOwnLockedShift &&
+                                  (isGerente || !isManagementRoleName(s.roleName)) && (
+                                  <div className="absolute -top-1.5 -right-1.5 flex gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                                     <button
                                       onClick={() => openEditModal(s)}
                                       className="w-5 h-5 rounded-full bg-white border border-gray-200 text-gray-400 hover:text-[#0F2F6B] hover:border-[#0F2F6B]/40 text-xs flex items-center justify-center"
-                                      aria-label="Editar turno"
+                                      aria-label={translateCopy("Editar turno")}
                                     >
                                       ✎
                                     </button>
                                     <button
                                       onClick={() => setConfirmDeleteId(s.id)}
                                       className="w-5 h-5 rounded-full bg-white border border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-300 text-xs flex items-center justify-center"
-                                      aria-label="Eliminar turno"
+                                      aria-label={translateCopy("Eliminar turno")}
                                     >
                                       ✕
                                     </button>
@@ -728,6 +1044,32 @@ const employeesWithoutSchedule = employees.filter(
         )}
       </div>
 
+      {filteredEmployees.length > PAGE_SIZE && (
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-gray-500">
+          <span>
+             {translateCopy("Mostrando")} {(currentPage - 1) * PAGE_SIZE + 1}–
+            {Math.min(currentPage * PAGE_SIZE, filteredEmployees.length)}  {translateCopy("de")}{" "}
+            {filteredEmployees.length}  {translateCopy("empleados")} </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+               {translateCopy("← Anterior")} </button>
+            <span className="font-semibold text-[#081A38]">
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+               {translateCopy("Siguiente →")} </button>
+          </div>
+        </div>
+      )}
+
       {isModalOpen && (
         <div
           onClick={() => {
@@ -735,18 +1077,18 @@ const employeesWithoutSchedule = employees.filter(
             setEditingId(null);
           }}
           className={`
-          fixed inset-0 z-50 flex items-center justify-center
-          bg-black/50 backdrop-blur-sm
+          fixed inset-0 z-50 flex items-center justify-center overflow-y-auto
+          bg-black/50 p-3 backdrop-blur-sm
           transition-all duration-300
         `}
         >
           <div
             onClick={(e) => e.stopPropagation()}
             className={`
-            relative w-[90%] max-w-md bg-white rounded-3xl
+            relative my-auto w-full max-w-md max-h-[90dvh] overflow-y-auto bg-white rounded-3xl
             shadow-[0_20px_80px_rgba(0,0,0,0.25)]
-            border border-[#E5E7EB] overflow-hidden
-            px-8 py-10
+            border border-[#E5E7EB]
+            px-5 py-6 sm:px-8 sm:py-10
             transition-all duration-300
             scale-100 translate-y-0 opacity-100
           `}
@@ -754,20 +1096,24 @@ const employeesWithoutSchedule = employees.filter(
             <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#EA1D2C] to-[#F87171]" />
 
             <h2 className="text-2xl font-extrabold text-[#111827] mb-6">
-              {editingId ? "Editar turno" : "Nuevo turno"}
+              {editingId ? translateCopy("Editar turno") : translateCopy("Nuevo turno")}
             </h2>
+            {form.employeeId !== 0 && selectedEmployee && (
+              <p className="text-sm font-semibold text-gray-500 -mt-4 mb-6">
+                {selectedEmployee.name} {selectedEmployee.lastName ?? ""}
+              </p>
+            )}
 
             {formError && (
               <div className="bg-red-100 text-[#EF4444] px-4 py-3 rounded-xl mb-4 text-sm font-medium">
-                {formError}
+                {translateCopy(formError)}
               </div>
             )}
 
             <div className="space-y-4">
-              <div>
+              <div className={form.employeeId !== 0 ? "hidden" : ""}>
                 <label className="text-xs font-semibold text-gray-500">
-                  Empleado
-                </label>
+                   {translateCopy("Empleado")} </label>
                 <select
                   className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
                   value={form.employeeId}
@@ -786,7 +1132,7 @@ const employeesWithoutSchedule = employees.filter(
                     setFormError("");
                   }}
                 >
-                  <option value={0}>Selecciona...</option>
+                  <option value={0}>{translateCopy("Selecciona...")}</option>
                   {employeesWithoutSchedule.map((emp: any) => (
                     <option key={emp.id} value={emp.id}>
                       {emp.name} {emp.lastName ?? ""}
@@ -796,17 +1142,28 @@ const employeesWithoutSchedule = employees.filter(
               </div>
               <div>
                 <label className="text-xs font-semibold text-gray-500">
-                  Sede
-                </label>
+                   {translateCopy("Sede")} </label>
                 {isGerente ? (
                   <select
                     className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
                     value={form.branchId}
-                    onChange={(e) =>
-                      setForm({ ...form, branchId: Number(e.target.value) })
-                    }
+                    onChange={async (e) => {
+                      const newId = Number(e.target.value);
+                      setForm((f) => ({ ...f, branchId: newId }));
+                      if (!newId) return;
+                      const hours = await loadBranchHours(newId);
+                      if (!hours) {
+                        setNoHoursAlert(true);
+                        return;
+                      }
+                      setForm((f) => ({
+                        ...f,
+                        startTime: hours.open,
+                        endTime: hours.close,
+                      }));
+                    }}
                   >
-                    <option value={0}>Selecciona...</option>
+                    <option value={0}>{translateCopy("Selecciona...")}</option>
                     {allBranches.map((b) => (
                       <option key={b.id} value={b.id}>
                         {b.name}
@@ -817,7 +1174,7 @@ const employeesWithoutSchedule = employees.filter(
                   <input
                     type="text"
                     disabled
-                    value={myBranch?.name ?? "Sin sede asignada"}
+                    value={myBranch?.name ?? translateCopy("Sin sede asignada")}
                     className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-500 bg-gray-100"
                   />
                 )}
@@ -825,8 +1182,7 @@ const employeesWithoutSchedule = employees.filter(
 
               <div>
                 <label className="text-xs font-semibold text-gray-500">
-                  Rol del turno
-                </label>
+                   {translateCopy("Rol del turno")} </label>
                 <select
                   className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
                   value={form.roleId}
@@ -834,10 +1190,10 @@ const employeesWithoutSchedule = employees.filter(
                     setForm({ ...form, roleId: Number(e.target.value) })
                   }
                 >
-                  <option value={0}>Selecciona...</option>
+                  <option value={0}>{translateCopy("Selecciona...")}</option>
                   {operationalRoles.map((role) => (
                     <option key={role.id} value={role.id}>
-                      {role.name}
+                      {translateCopy(role.name)}
                     </option>
                   ))}
                 </select>
@@ -845,55 +1201,51 @@ const employeesWithoutSchedule = employees.filter(
 
               {needsCvWarning && (
                 <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 text-xs text-orange-700">
-                  <strong>{selectedEmployee?.name}</strong> no tiene hoja de
-                  vida cargada, y el rol <strong>{selectedRole?.name}</strong>{" "}
-                  la requiere. Ve a "Gestión de Talento", edita a este empleado
-                  y sube su CV antes de poder asignarle este turno.
-                </div>
+                  <strong>{selectedEmployee?.name}</strong>  {translateCopy("no tiene hoja de vida cargada, y el rol")} <strong>{translateCopy(selectedRole?.name ?? "")}</strong>{" "}
+                   {translateCopy("la requiere. Ve a \"Gestión de Talento\", edita a este empleado y sube su CV antes de poder asignarle este turno.")} </div>
               )}
 
               <div>
                 <label className="text-xs font-semibold text-gray-500">
-                  Fecha
-                </label>
+                   {translateCopy("Fecha")} </label>
                 <input
                   type="date"
-                  className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
+                  disabled
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-500 bg-gray-100 cursor-not-allowed"
                   value={form.shiftDate}
-                  onChange={(e) =>
-                    setForm({ ...form, shiftDate: e.target.value })
-                  }
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-gray-500">
-                    Hora inicio
-                  </label>
+                     {translateCopy("Hora inicio")} </label>
                   <input
                     type="time"
-                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
+                    disabled
+                    step={60}
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-500 bg-gray-100 cursor-not-allowed"
                     value={form.startTime}
-                    onChange={(e) =>
-                      setForm({ ...form, startTime: e.target.value })
-                    }
                   />
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-500">
-                    Hora fin
-                  </label>
-                  <input
+                     {translateCopy("Hora fin")} </label>
+                   <input
                     type="time"
-                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
+                    disabled
+                    step={60}
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-500 bg-gray-100 cursor-not-allowed"
                     value={form.endTime}
-                    onChange={(e) =>
-                      setForm({ ...form, endTime: e.target.value })
-                    }
                   />
                 </div>
               </div>
+              {branchHours && (
+                <p className="text-[11px] text-gray-400 -mt-2">
+                   {translateCopy("Horario de la sede:")} {formatTime12h(branchHours.open)} –{" "}
+                  {formatTime12h(branchHours.close)}
+                </p>
+              )}
             </div>
 
             <div className="flex justify-end gap-3 mt-8">
@@ -904,18 +1256,17 @@ const employeesWithoutSchedule = employees.filter(
                 }}
                 className="px-4 py-2.5 rounded-xl text-gray-500 font-semibold hover:bg-gray-100"
               >
-                Cancelar
-              </button>
+                 {translateCopy("Cancelar")} </button>
               <button
                 onClick={handleSubmit}
                 disabled={saving || needsCvWarning}
                 className="px-6 py-2.5 rounded-xl bg-[#EA1D2C] text-white font-bold shadow-sm hover:shadow-md hover:bg-[#D91B29] transition-all disabled:opacity-40"
               >
                 {saving
-                  ? "Guardando..."
+                  ? translateCopy("Guardando...")
                   : editingId
-                    ? "Guardar cambios"
-                    : "Crear turno"}
+                    ? translateCopy("Guardar cambios")
+                    : translateCopy("Crear turno")}
               </button>
             </div>
           </div>
@@ -924,32 +1275,31 @@ const employeesWithoutSchedule = employees.filter(
       {isBulkModalOpen && (
         <div
           onClick={() => setIsBulkModalOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-3 backdrop-blur-sm"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="relative w-[90%] max-w-md bg-white rounded-3xl shadow-[0_20px_80px_rgba(0,0,0,0.25)] border border-[#E5E7EB] overflow-hidden px-8 py-10"
+            className="relative my-auto w-full max-w-md max-h-[90dvh] overflow-y-auto bg-white rounded-3xl shadow-[0_20px_80px_rgba(0,0,0,0.25)] border border-[#E5E7EB] px-5 py-6 sm:px-8 sm:py-10"
           >
             <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#EA1D2C] to-[#F87171]" />
 
             <h2 className="text-2xl font-extrabold text-[#111827] mb-1">
-              Asignar semana completa
-            </h2>
+               {translateCopy("Asignar semana completa")} </h2>
             <p className="text-xs text-gray-500 mb-6">
-              Crea el mismo turno para uno o varios días de esta semana.
-            </p>
+               {translateCopy("Crea el mismo turno para uno o varios días de esta semana.")} </p>
 
-            {bulkError && (
+            {bulkError.length > 0 && (
               <div className="bg-red-100 text-[#EF4444] px-4 py-3 rounded-xl mb-4 text-sm font-medium whitespace-pre-wrap">
-                {bulkError}
+                {bulkError.map((message, index) => (
+                  <p key={`${index}-${message}`}>{translateCopy(message)}</p>
+                ))}
               </div>
             )}
 
             <div className="space-y-4">
               <div>
                 <label className="text-xs font-semibold text-gray-500">
-                  Empleado
-                </label>
+                   {translateCopy("Empleado")} </label>
                 <select
                   className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
                   value={bulkForm.employeeId}
@@ -960,7 +1310,7 @@ const employeesWithoutSchedule = employees.filter(
                     })
                   }
                 >
-                  <option value={0}>Todos los empleados de esta sede</option>
+                  <option value={0}>{translateCopy("Todos los empleados de esta sede")}</option>
                   {branchEmployees.map((emp: any) => (
                     <option key={emp.id} value={emp.id}>
                       {emp.name} {emp.lastName ?? ""}
@@ -971,8 +1321,7 @@ const employeesWithoutSchedule = employees.filter(
 
               <div>
                 <label className="text-xs font-semibold text-gray-500">
-                  Rol del turno
-                </label>
+                   {translateCopy("Rol del turno")} </label>
                 <select
                   className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
                   value={bulkForm.roleId}
@@ -980,10 +1329,10 @@ const employeesWithoutSchedule = employees.filter(
                     setBulkForm({ ...bulkForm, roleId: Number(e.target.value) })
                   }
                 >
-                  <option value={0}>Selecciona...</option>
+                  <option value={0}>{translateCopy("Selecciona...")}</option>
                   {operationalRoles.map((role) => (
                     <option key={role.id} value={role.id}>
-                      {role.name}
+                      {translateCopy(role.name)}
                     </option>
                   ))}
                 </select>
@@ -992,36 +1341,37 @@ const employeesWithoutSchedule = employees.filter(
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-gray-500">
-                    Hora inicio
-                  </label>
+                     {translateCopy("Hora inicio")} </label>
                   <input
                     type="time"
-                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
+                    disabled
+                    step={60}
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-500 bg-gray-100 cursor-not-allowed"
                     value={bulkForm.startTime}
-                    onChange={(e) =>
-                      setBulkForm({ ...bulkForm, startTime: e.target.value })
-                    }
                   />
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-500">
-                    Hora fin
-                  </label>
+                     {translateCopy("Hora fin")} </label>
                   <input
                     type="time"
-                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
+                    disabled
+                    step={60}
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-500 bg-gray-100 cursor-not-allowed"
                     value={bulkForm.endTime}
-                    onChange={(e) =>
-                      setBulkForm({ ...bulkForm, endTime: e.target.value })
-                    }
                   />
                 </div>
               </div>
+              {branchHours && (
+                <p className="text-[11px] text-gray-400 -mt-2">
+                  {translateCopy("Horario de la sede:")} {formatTime12h(branchHours.open)} –{" "}
+                  {formatTime12h(branchHours.close)}
+                </p>
+              )}
 
               <div>
                 <label className="text-xs font-semibold text-gray-500 block mb-2">
-                  Días de esta semana
-                </label>
+                   {translateCopy("Días de esta semana")} </label>
                 <div className="flex gap-1.5 flex-wrap">
                   {weekDays.map((d, i) => {
                     const past = isPastDate(toISODate(d));
@@ -1043,9 +1393,7 @@ const employeesWithoutSchedule = employees.filter(
                   })}
                 </div>
                 <p className="text-[10px] text-gray-400 mt-2">
-                  Si un empleado ya tiene turno en alguno de estos días, ese día
-                  se omite automáticamente (no se duplica).
-                </p>
+                   {translateCopy("Si un empleado ya tiene turno en alguno de estos días, ese día se omite automáticamente (no se duplica).")} </p>
               </div>
             </div>
 
@@ -1054,14 +1402,13 @@ const employeesWithoutSchedule = employees.filter(
                 onClick={() => setIsBulkModalOpen(false)}
                 className="px-4 py-2.5 rounded-xl text-gray-500 font-semibold hover:bg-gray-100"
               >
-                Cancelar
-              </button>
+                 {translateCopy("Cancelar")} </button>
               <button
                 onClick={handleBulkSubmit}
                 disabled={bulkSaving}
                 className="px-6 py-2.5 rounded-xl bg-[#EA1D2C] text-white font-bold shadow-sm hover:shadow-md hover:bg-[#D91B29] transition-all disabled:opacity-40"
               >
-                {bulkSaving ? "Asignando..." : "Asignar turnos"}
+                {bulkSaving ? translateCopy("Asignando...") : translateCopy("Asignar turnos")}
               </button>
             </div>
           </div>
@@ -1070,7 +1417,7 @@ const employeesWithoutSchedule = employees.filter(
 
       <Dialog
         isOpen={!!transferTarget}
-        title="Trasladar a otra sede"
+        title={translateCopy("Trasladar a otra sede")}
         subtitle={
           transferTarget
             ? `${transferTarget.name} ${transferTarget.lastName ?? ""}`.trim()
@@ -1080,34 +1427,29 @@ const employeesWithoutSchedule = employees.filter(
       >
         {transferError && (
           <div className="bg-red-100 text-[#EF4444] px-4 py-3 rounded-xl mb-4 text-sm font-medium">
-            {transferError}
+            {translateCopy(transferError)}
           </div>
         )}
         {transferSuccessMsg ? (
           <div className="space-y-4">
             <div className="bg-green-50 border border-green-100 text-green-700 px-4 py-3 rounded-xl text-sm font-medium">
-              {transferSuccessMsg}
+              {translateCopy(transferSuccessMsg)}
             </div>
             <div className="flex justify-end">
               <button
                 onClick={() => setTransferTarget(null)}
                 className="px-6 py-2.5 rounded-xl text-sm font-bold bg-[#111827] text-white hover:bg-gray-800 transition-colors"
               >
-                Cerrar
-              </button>
+                 {translateCopy("Cerrar")} </button>
             </div>
           </div>
         ) : (
           <div className="space-y-4">
             <p className="text-sm text-gray-600">
-              Todos los turnos futuros (de hoy en adelante) de este empleado se
-              moverán a la nueva sede. Los turnos pasados quedan intactos, como
-              historial de la sede donde realmente ocurrieron.
-            </p>
+               {translateCopy("Todos los turnos futuros (de hoy en adelante) de este empleado se moverán a la nueva sede. Los turnos pasados quedan intactos, como historial de la sede donde realmente ocurrieron.")} </p>
             <div>
               <label className="text-xs font-semibold text-gray-500">
-                Sede destino
-              </label>
+                 {translateCopy("Sede destino")} </label>
               <select
                 className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
                 value={transferBranchId}
@@ -1117,7 +1459,7 @@ const employeesWithoutSchedule = employees.filter(
                   )
                 }
               >
-                <option value="">Selecciona...</option>
+                <option value="">{translateCopy("Selecciona...")}</option>
                 {allBranches
                   .filter((b) => b.id !== transferTarget?.branchId)
                   .map((b) => (
@@ -1132,23 +1474,53 @@ const employeesWithoutSchedule = employees.filter(
                 onClick={() => setTransferTarget(null)}
                 className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
               >
-                Cancelar
-              </button>
+                 {translateCopy("Cancelar")} </button>
               <button
                 onClick={handleConfirmTransfer}
                 disabled={transferring}
                 className="bg-[#EA1D2C] hover:bg-[#D91B29] text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
               >
-                {transferring ? "Trasladando..." : "Confirmar traslado"}
+                {transferring ? translateCopy("Trasladando...") : translateCopy("Confirmar traslado")}
               </button>
             </div>
           </div>
         )}
       </Dialog>
+      <Dialog
+        isOpen={noHoursAlert}
+        title={translateCopy("Falta configurar el horario de la sede")}
+        onClose={() => setNoHoursAlert(false)}
+      >
+        <div className="flex items-start gap-4 mb-6">
+          <div className="w-11 h-11 rounded-full bg-amber-100 flex items-center justify-center text-xl flex-shrink-0">
+            ⏰
+          </div>
+          <p className="text-sm text-gray-600 pt-1.5">
+             {translateCopy("Esta sede aún no tiene hora de apertura y de cierre. Configúralas en")}{" "}
+            <strong>
+               {translateCopy("Configuración → Ajustes del Restaurante → Ajustes Operativos")} </strong>{" "}
+             {translateCopy("antes de crear turnos. Los turnos usan ese horario como límite.")} </p>
+        </div>
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={() => setNoHoursAlert(false)}
+            className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+             {translateCopy("Cerrar")} </button>
+          <button
+            onClick={() => {
+              setNoHoursAlert(false);
+              router.push("/config");
+            }}
+            className="bg-[#EA1D2C] hover:bg-[#D91B29] text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm"
+          >
+             {translateCopy("Ir a Configuración")} </button>
+        </div>
+      </Dialog>
 
       <Dialog
         isOpen={confirmDeleteId !== null}
-        title="Eliminar turno"
+        title={translateCopy("Eliminar turno")}
         onClose={() => setConfirmDeleteId(null)}
       >
         <div className="flex items-start gap-4 mb-6">
@@ -1156,23 +1528,20 @@ const employeesWithoutSchedule = employees.filter(
             ⚠️
           </div>
           <p className="text-sm text-gray-600 pt-1.5">
-            ¿Seguro que deseas eliminar este turno? Esta acción no se puede
-            deshacer.
-          </p>
+             {translateCopy("¿Seguro que deseas eliminar este turno? Esta acción no se puede deshacer.")} </p>
         </div>
         <div className="flex justify-end gap-3">
           <button
             onClick={() => setConfirmDeleteId(null)}
             className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
           >
-            Cancelar
-          </button>
+             {translateCopy("Cancelar")} </button>
           <button
             onClick={handleConfirmDelete}
             disabled={deleting}
             className="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
           >
-            {deleting ? "Eliminando..." : "Eliminar"}
+            {deleting ? translateCopy("Eliminando...") : translateCopy("Eliminar")}
           </button>
         </div>
       </Dialog>

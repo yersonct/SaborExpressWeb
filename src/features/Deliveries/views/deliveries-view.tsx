@@ -1,14 +1,15 @@
 "use client";
 
+import { translateCopy } from "@/config/copy-translations";
 import { useEffect, useState } from "react";
-import { Dialog } from "@/components/ui/dialog";
+import { useTranslation } from "react-i18next";
 import { NotificationModal } from "@/components/ui/modal";
 import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useBranches } from "@/features/branches/hooks/use-branches";
 import { useMyBranch } from "@/features/branches/hooks/use-my-branch";
 import { useBranchDeliveries } from "../hooks/use-branch-deliveries";
 import type { DeliveryStatus } from "../types/delivery.types";
-
+import { useRealtimeEvents } from "@/features/Dashboard/hooks/use-realtime-events";
 type NotifyState = { message: string; type: "success" | "error" } | null;
 
 const STATUS_LABELS: Record<DeliveryStatus, string> = {
@@ -30,13 +31,18 @@ const NEXT_STATUS: Partial<Record<DeliveryStatus, DeliveryStatus>> = {
   InTransit: "Delivered",
 };
 
-const inputClass =
-  "w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-[#111827] placeholder:text-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-[#EA1D2C] focus:border-transparent transition-all";
-
-const labelClass =
-  "block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2";
-
 export const DeliveriesView = () => {
+  const { t, i18n } = useTranslation();
+  const currentLanguage = (i18n.resolvedLanguage ?? i18n.language)
+    .split(/[-_]/)[0]
+    .toLowerCase();
+  const dateLocale = currentLanguage === "en"
+    ? "en-US"
+    : currentLanguage === "pt"
+      ? "pt-BR"
+      : currentLanguage === "fr"
+        ? "fr-FR"
+        : "es-CO";
   const { session, isHydrated } = useAuth();
   const isAdmin =
     session?.roles?.some((r) => r.toUpperCase() === "ADMINISTRADOR") ?? false;
@@ -48,9 +54,8 @@ export const DeliveriesView = () => {
 
   const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
   const [notify, setNotify] = useState<NotifyState>(null);
-  const [isAssignOpen, setIsAssignOpen] = useState(false);
-  const [orderId, setOrderId] = useState("");
-  const [deliveryPersonId, setDeliveryPersonId] = useState("");
+  const [statusFilter, setStatusFilter] = useState<DeliveryStatus | "All">("All");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     if (isAdmin && myBranch) {
@@ -66,34 +71,38 @@ export const DeliveriesView = () => {
     loading,
     error,
     savingId,
-    assigning,
-    assignDelivery,
     updateStatus,
+    reload,
   } = useBranchDeliveries(selectedBranchId);
+
+  useRealtimeEvents(
+    session?.userId ?? null,
+    ["DeliveriesChanged", "OrdersChanged"],
+    () => reload(true),
+    () => reload(true),
+  );
 
   if (!isHydrated) return null;
 
-  const openAssign = () => {
-    setOrderId("");
-    setDeliveryPersonId(deliveryPersons[0] ? String(deliveryPersons[0].employeeId) : "");
-    setIsAssignOpen(true);
+  const PAGE_SIZE = 10;
+  const STATUS_ORDER: Record<DeliveryStatus, number> = {
+    Assigned: 0,
+    InTransit: 1,
+    Delivered: 2,
   };
-
-  const handleAssign = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!orderId || !deliveryPersonId) return;
-    try {
-      await assignDelivery(Number(orderId), Number(deliveryPersonId));
-      setNotify({ message: "Domicilio asignado correctamente", type: "success" });
-      setIsAssignOpen(false);
-    } catch (err) {
-      setNotify({
-        message:
-          err instanceof Error ? err.message : "No se pudo asignar el domicilio",
-        type: "error",
-      });
-    }
-  };
+  const sorted = [...deliveries].sort(
+    (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.id - a.id,
+  );
+  const filtered =
+    statusFilter === "All"
+      ? sorted
+      : sorted.filter((d) => d.status === statusFilter);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const visible = filtered.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
 
   const handleAdvanceStatus = async (deliveryId: number, current: DeliveryStatus) => {
     const next = NEXT_STATUS[current];
@@ -101,13 +110,13 @@ export const DeliveriesView = () => {
     try {
       await updateStatus(deliveryId, next);
       setNotify({
-        message: `Domicilio actualizado a "${STATUS_LABELS[next]}"`,
+        message: `${translateCopy("Domicilio actualizado a")} "${translateCopy(STATUS_LABELS[next])}"`,
         type: "success",
       });
     } catch (err) {
       setNotify({
         message:
-          err instanceof Error ? err.message : "No se pudo actualizar el estado",
+          err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo actualizar el estado"),
         type: "error",
       });
     }
@@ -119,18 +128,21 @@ export const DeliveriesView = () => {
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-[#111827] tracking-tight">
-              Domicilios
+              {t("pageTitles.deliveries")}
             </h1>
             <p className="text-sm text-gray-500 mt-1">
-              Seguimiento y asignación de entregas a repartidores.
-            </p>
+               {translateCopy("Seguimiento de las entregas a repartidores.")} </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {isGerente && branches.length > 0 && (
               <select
                 value={selectedBranchId ?? ""}
-                onChange={(e) => setSelectedBranchId(Number(e.target.value))}
-                className="text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-4 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#111827]"
+                onChange={(e) => {
+                  setSelectedBranchId(Number(e.target.value));
+                  setPage(1);
+                  setStatusFilter("All");
+                }}
+                className="w-full max-w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#111827] sm:w-auto"
               >
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>
@@ -139,21 +151,13 @@ export const DeliveriesView = () => {
                 ))}
               </select>
             )}
-            <button
-              onClick={openAssign}
-              disabled={!selectedBranchId || deliveryPersons.length === 0}
-              className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold py-2.5 px-5 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50 flex items-center gap-2"
-            >
-              <span className="text-lg leading-none">+</span> Asignar Domicilio
-            </button>
           </div>
         </div>
 
         {deliveryPersons.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
-              Repartidores de la sede
-            </p>
+               {translateCopy("Repartidores de la sede")} </p>
             <div className="flex flex-wrap gap-3">
               {deliveryPersons.map((p) => (
                 <div
@@ -167,12 +171,34 @@ export const DeliveriesView = () => {
                   <span
                     className={`w-1.5 h-1.5 rounded-full ${p.isAvailable ? "bg-green-500" : "bg-gray-400"}`}
                   />
-                  {p.name} {p.lastName ?? ""} · {p.activeDeliveryCount} activas
-                </div>
+                  {p.name} {p.lastName ?? ""} · {p.activeDeliveryCount}  {translateCopy("activas")} </div>
               ))}
             </div>
           </div>
         )}
+
+        <div className="flex flex-wrap gap-2">
+          {(["All", "Assigned", "InTransit", "Delivered"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => {
+                setStatusFilter(s);
+                setPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                statusFilter === s
+                  ? "bg-[#111827] text-white border-[#111827]"
+                  : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              {s === "All" ? translateCopy("Todos") : translateCopy(STATUS_LABELS[s])}
+              {" · "}
+              {s === "All"
+                ? deliveries.length
+                : deliveries.filter((d) => d.status === s).length}
+            </button>
+          ))}
+        </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           {loading ? (
@@ -186,34 +212,31 @@ export const DeliveriesView = () => {
               ))}
             </div>
           ) : error ? (
-            <div className="p-6 text-sm text-red-600">{error}</div>
-          ) : deliveries.length === 0 ? (
-            <div className="p-16 text-center">
+            <div className="p-6 text-sm text-red-600">{translateCopy(error)}</div>
+          ) : filtered.length === 0 ? (
+            <div className="p-6 text-center sm:p-16">
               <div className="text-4xl mb-3">🛵</div>
               <p className="text-gray-400 font-medium">
-                No hay domicilios registrados para esta sede.
-              </p>
+                 {translateCopy("No hay domicilios registrados para esta sede.")} </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full min-w-[720px] text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-50/50 text-xs text-gray-500 uppercase tracking-wider">
-                    <th className="px-5 py-3 font-semibold">Pedido</th>
-                    <th className="px-5 py-3 font-semibold">Cliente</th>
-                    <th className="px-5 py-3 font-semibold">Dirección</th>
-                    <th className="px-5 py-3 font-semibold">Repartidor</th>
-                    <th className="px-5 py-3 font-semibold text-center">Estado</th>
-                    <th className="px-5 py-3 font-semibold text-right">Acción</th>
+                    <th className="px-5 py-3 font-semibold">{translateCopy("Fecha")}</th>
+                    <th className="px-5 py-3 font-semibold">{translateCopy("Cliente")}</th>
+                    <th className="px-5 py-3 font-semibold">{translateCopy("Dirección")}</th>
+                    <th className="px-5 py-3 font-semibold">{translateCopy("Repartidor")}</th>
+                    <th className="px-5 py-3 font-semibold text-center">{translateCopy("Estado")}</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm divide-y divide-gray-100">
-                  {deliveries.map((d) => {
-                    const next = NEXT_STATUS[d.status];
+                  {visible.map((d) => {
                     return (
                       <tr key={d.id} className="hover:bg-red-50/30 transition-colors">
                         <td className="px-5 py-4 font-bold text-[#111827]">
-                          #{d.orderId}
+                          {new Date(d.assignedAt).toLocaleString(dateLocale)}
                         </td>
                         <td className="px-5 py-4">
                           <p className="text-gray-700">{d.customerName ?? "—"}</p>
@@ -229,87 +252,39 @@ export const DeliveriesView = () => {
                           <span
                             className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold border ${STATUS_STYLES[d.status]}`}
                           >
-                            {STATUS_LABELS[d.status]}
+                            {translateCopy(STATUS_LABELS[d.status])}
                           </span>
-                        </td>
-                        <td className="px-5 py-4 text-right">
-                          {next ? (
-                            <button
-                              onClick={() => handleAdvanceStatus(d.id, d.status)}
-                              disabled={savingId === d.id}
-                              className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50"
-                            >
-                              {savingId === d.id
-                                ? "Actualizando..."
-                                : `Marcar "${STATUS_LABELS[next]}"`}
-                            </button>
-                          ) : (
-                            <span className="text-xs text-gray-300">—</span>
-                          )}
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
+              {totalPages > 1 && (
+                <div className="flex flex-col gap-3 border-t border-gray-100 px-4 py-3 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                  <span className="break-words">
+                     {translateCopy("Página")} {currentPage}  {translateCopy("de")} {totalPages} · {filtered.length}  {translateCopy("domicilios")} </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setPage(currentPage - 1)}
+                      disabled={currentPage === 1}
+                      className="px-3 py-1.5 rounded-lg border border-gray-200 font-bold disabled:opacity-40"
+                    >
+                       {translateCopy("Anterior")} </button>
+                    <button
+                      onClick={() => setPage(currentPage + 1)}
+                      disabled={currentPage === totalPages}
+                      className="px-3 py-1.5 rounded-lg border border-gray-200 font-bold disabled:opacity-40"
+                    >
+                       {translateCopy("Siguiente")} </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      <Dialog
-        isOpen={isAssignOpen}
-        title="Asignar Domicilio"
-        subtitle="Vincula un pedido existente con un repartidor de la sede."
-        onClose={() => setIsAssignOpen(false)}
-      >
-        <form className="space-y-4" onSubmit={handleAssign}>
-          <div>
-            <label className={labelClass}>Número de Pedido</label>
-            <input
-              type="number"
-              value={orderId}
-              onChange={(e) => setOrderId(e.target.value)}
-              className={inputClass}
-              placeholder="Ej: 128"
-            />
-            <p className="text-xs text-gray-400 mt-1">
-              El pedido debe existir y ser tipo domicilio.
-            </p>
-          </div>
-          <div>
-            <label className={labelClass}>Repartidor</label>
-            <select
-              value={deliveryPersonId}
-              onChange={(e) => setDeliveryPersonId(e.target.value)}
-              className={inputClass}
-            >
-              {deliveryPersons.map((p) => (
-                <option key={p.employeeId} value={p.employeeId}>
-                  {p.name} {p.lastName ?? ""} ({p.activeDeliveryCount} activas)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="pt-4 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setIsAssignOpen(false)}
-              className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={assigning}
-              className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
-            >
-              {assigning ? "Asignando..." : "Asignar"}
-            </button>
-          </div>
-        </form>
-      </Dialog>
 
       <NotificationModal
         isOpen={!!notify}

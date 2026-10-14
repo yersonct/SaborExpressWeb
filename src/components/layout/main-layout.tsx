@@ -2,9 +2,8 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Sidebar } from "./sidebar";
-import { NotificationBell } from "./notification-bell";
 import { useAuth } from "@/features/auth/hooks/use-auth";
+import { AppFrame } from "./app-frame";
 
 const ALLOWED_WEB_ROLES = ["GERENTE", "ADMINISTRADOR"];
 
@@ -40,15 +39,5 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
     return null;
   }
 
-  return (
-    <div className="flex min-h-screen bg-[#F3F4F6]">
-      <Sidebar />
-      <div className="flex-1 ml-64 flex flex-col">
-        <header className="h-16 bg-[#F3F4F6] flex items-center justify-end px-8 shrink-0">
-          <NotificationBell />
-        </header>
-        <main className="flex-1 p-8">{children}</main>
-      </div>
-    </div>
-  );
+  return <AppFrame>{children}</AppFrame>;
 };

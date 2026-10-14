@@ -1,6 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { translateCopy, getCurrentLocale } from "@/config/copy-translations";
+import { formatMoney } from "@/lib/format-money";
+import { useState, useMemo, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { NotificationModal } from "@/components/ui/modal";
 import { useAuth } from "@/features/auth/hooks/use-auth";
@@ -49,6 +52,7 @@ const STATUS_THEME: Record<
 };
 
 export const TablesView = () => {
+  const { t } = useTranslation();
   const { session, isHydrated } = useAuth();
   const isGerente = session?.roles?.includes("GERENTE") ?? false;
   const isAdmin = session?.roles?.includes("ADMINISTRADOR") ?? false;
@@ -62,7 +66,7 @@ const { history: statusHistory, loading: loadingHistory } = useOrderStatusHistor
     [isGerente, allBranches, myBranch],
   );
   const formatDateTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString("es-CO", {
+    return new Date(dateString).toLocaleString(getCurrentLocale(), {
       day: "2-digit",
       month: "short",
       hour: "numeric",
@@ -81,6 +85,13 @@ const { history: statusHistory, loading: loadingHistory } = useOrderStatusHistor
   };
 
   const [branchId, setBranchId] = useState<number | null>(null);
+
+  // Al cargar las sedes, se elige la primera automáticamente
+  useEffect(() => {
+    if (branchId === null && branches.length > 0) {
+      setBranchId(branches[0].id);
+    }
+  }, [branches, branchId]);
 const {
   tables,
   loading,
@@ -136,11 +147,11 @@ const activeOrderByTableId = useMemo(() => {
     e.preventDefault();
     const num = Number(number);
     if (!number || isNaN(num) || num <= 0) {
-      setNotify({ message: "Ingresa un número de mesa válido", type: "error" });
+      setNotify({ message: translateCopy("Ingresa un número de mesa válido"), type: "error" });
       return;
     }
     if (!editingTable && !branchId) {
-      setNotify({ message: "Selecciona una sede primero", type: "error" });
+      setNotify({ message: translateCopy("Selecciona una sede primero"), type: "error" });
       return;
     }
 
@@ -149,18 +160,18 @@ const activeOrderByTableId = useMemo(() => {
       if (editingTable) {
         await updateTable(editingTable.id, { number: num });
         setNotify({
-          message: "Mesa actualizada correctamente",
+          message: translateCopy("Mesa actualizada correctamente"),
           type: "success",
         });
       } else {
         await createTable({ branchId: branchId!, number: num });
-        setNotify({ message: "Mesa creada correctamente", type: "success" });
+        setNotify({ message: translateCopy("Mesa creada correctamente"), type: "success" });
       }
       setIsFormOpen(false);
     } catch (err) {
       setNotify({
         message:
-          err instanceof Error ? err.message : "No se pudo guardar la mesa",
+          err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo guardar la mesa"),
         type: "error",
       });
     } finally {
@@ -175,7 +186,7 @@ const activeOrderByTableId = useMemo(() => {
     } catch (err) {
       setNotify({
         message:
-          err instanceof Error ? err.message : "No se pudo cambiar el estado",
+          err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo cambiar el estado"),
         type: "error",
       });
     } finally {
@@ -188,12 +199,12 @@ const activeOrderByTableId = useMemo(() => {
     setSaving(true);
     try {
       await deleteTable(confirmDelete.id);
-      setNotify({ message: "Mesa eliminada correctamente", type: "success" });
+      setNotify({ message: translateCopy("Mesa eliminada correctamente"), type: "success" });
       setConfirmDelete(null);
     } catch (err) {
       setNotify({
         message:
-          err instanceof Error ? err.message : "No se pudo eliminar la mesa",
+          err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo eliminar la mesa"),
         type: "error",
       });
       setConfirmDelete(null);
@@ -219,37 +230,44 @@ const activeOrderByTableId = useMemo(() => {
     setStatusFilter("all");
   };
 
+  // Los botones de estado solo funcionan con una sede escogida
+  const handleStatusFilter = (value: TableStatus | "all") => {
+    if (!branchId) {
+      setNotify({
+        message: translateCopy("Escoge una sede primero para filtrar las mesas."),
+        type: "error",
+      });
+      return;
+    }
+    setStatusFilter(value);
+  };
+
   return (
     <>
       <div className="space-y-6 pb-10">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-extrabold text-[#111827] tracking-tight">
-              Mesas
+              {t("pageTitles.tables")}
             </h1>
             <p className="text-gray-500 mt-1">
-              Administra las mesas registradas por sede.
-            </p>
+               {translateCopy("Administra las mesas registradas por sede.")} </p>
           </div>
           <button
             onClick={openCreate}
             disabled={!branchId}
             className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold py-3 px-6 rounded-xl text-sm transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            <span className="text-lg leading-none">+</span> Nueva Mesa
-          </button>
+            <span className="text-lg leading-none">+</span>  {translateCopy("Nueva Mesa")} </button>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
-          <label className={labelClass}>Sede</label>
+          <label className={labelClass}>{translateCopy("Sede")}</label>
           <select
             value={branchId ?? ""}
             onChange={(e) => handleBranchChange(e.target.value)}
             className={inputClass}
           >
-            <option value="" disabled className="text-gray-900 bg-white">
-              Selecciona una sede
-            </option>
             {branches.map((b) => (
               <option
                 key={b.id}
@@ -266,15 +284,14 @@ const activeOrderByTableId = useMemo(() => {
         {tables.length > 0 && (
           <div className="flex flex-wrap gap-2.5">
             <button
-              onClick={() => setStatusFilter("all")}
+              onClick={() => handleStatusFilter("all")}
               className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all border ${
                 statusFilter === "all"
                   ? "bg-[#111827] text-white border-[#111827] shadow-sm"
                   : "bg-white text-gray-500 border-gray-100 hover:border-gray-200 shadow-sm"
               }`}
             >
-              Todas
-              <span
+               {translateCopy("Todas")} <span
                 className={
                   statusFilter === "all" ? "text-gray-100" : "text-gray-400 "
                 }
@@ -288,7 +305,7 @@ const activeOrderByTableId = useMemo(() => {
               return (
                 <button
                   key={status}
-                  onClick={() => setStatusFilter(status)}
+                  onClick={() => handleStatusFilter(status)}
                   className={`flex items-center gap-2.5 rounded-xl px-4 py-2.5 text-sm font-bold border transition-all shadow-sm ${
                     isActive
                       ? "bg-[#111827] text-white border-[#111827]"
@@ -298,7 +315,7 @@ const activeOrderByTableId = useMemo(() => {
                   <span
                     className={`w-2.5 h-2.5 rounded-full ${STATUS_THEME[status].dot}`}
                   />
-                  {STATUS_LABELS[status]}
+                  {translateCopy(STATUS_LABELS[status])}
                   <span
                     className={isActive ? "text-gray-100" : "text-gray-400"}
                   >
@@ -311,14 +328,13 @@ const activeOrderByTableId = useMemo(() => {
         )}
 
         {!branchId ? (
-          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-16 text-center">
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 text-center sm:p-16">
             <div className="text-5xl mb-4">🏬</div>
             <p className="text-gray-400 font-medium">
-              Selecciona una sede para ver sus mesas.
-            </p>
+               {translateCopy("Selecciona una sede para ver sus mesas.")} </p>
           </div>
         ) : loading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {[1, 2, 3, 4].map((i) => (
               <div
                 key={i}
@@ -328,26 +344,25 @@ const activeOrderByTableId = useMemo(() => {
           </div>
         ) : error ? (
           <div className="bg-red-50 border border-red-100 rounded-2xl p-6 text-sm text-red-600">
-            {error}
+            {translateCopy(error)}
           </div>
         ) : tables.length === 0 ? (
-          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-16 text-center">
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 text-center sm:p-16">
             <div className="text-5xl mb-4">🪑</div>
             <p className="text-gray-400 font-medium">
               {branchId
-                ? "No hay mesas registradas en esta sede."
-                : "No hay mesas registradas en ninguna sede."}
+                ? translateCopy("No hay mesas registradas en esta sede.")
+                : translateCopy("No hay mesas registradas en ninguna sede.")}
             </p>
           </div>
         ) : visibleTables.length === 0 ? (
-          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-16 text-center">
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 text-center sm:p-16">
             <div className="text-5xl mb-4">🔍</div>
             <p className="text-gray-400 font-medium">
-              No hay mesas con este estado.
-            </p>
+               {translateCopy("No hay mesas con este estado.")} </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-4">
+          <div className="grid max-h-[65vh] grid-cols-1 gap-4 overflow-y-auto p-1 pr-3 min-[420px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 [scrollbar-width:thin]">
             {visibleTables.map((table) => {
               const theme = STATUS_THEME[table.status] ?? FALLBACK_THEME;
               const activeOrder = activeOrderByTableId.get(table.id);
@@ -363,7 +378,7 @@ const activeOrderByTableId = useMemo(() => {
                     <div className="flex justify-between items-start">
                       <div>
                         <span className="text-2xl font-black text-[#111827]">
-                          Mesa {table.number}
+                           {translateCopy("Mesa")} {table.number}
                         </span>
                         {!branchId && table.branchName && (
                           <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mt-0.5">
@@ -374,7 +389,7 @@ const activeOrderByTableId = useMemo(() => {
                       <button
                         onClick={() => setConfirmDelete(table)}
                         className="text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                        title="Eliminar mesa"
+                        title={translateCopy("Eliminar mesa")}
                       >
                         ✕
                       </button>
@@ -387,56 +402,26 @@ const activeOrderByTableId = useMemo(() => {
                         className="flex items-center justify-between bg-orange-50 border border-orange-100 rounded-lg px-3 py-2 hover:bg-orange-100 transition-colors text-left"
                       >
                         <span className="text-[11px] font-bold text-orange-700">
-                          Pedido #{activeOrder.id} activo
+                          {translateCopy("Pedido activo")}
                         </span>
                         <span className="text-xs font-black text-orange-700">
-                          ${(activeOrder.total ?? 0).toLocaleString("es-CO")}
+                          {formatMoney(activeOrder.total ?? 0)}
                         </span>
                       </button>
                     )}
 
-                    <div className="relative">
-                      <select
-                        value={table.status}
-                        onChange={(e) =>
-                          handleStatusChange(
-                            table,
-                            e.target.value as TableStatus,
-                          )
-                        }
-                        disabled={saving}
-                        className={`w-full appearance-none text-xs font-bold pl-3 pr-8 py-2 rounded-lg border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${theme.badge}`}
-                      >
-                        {Object.values(TableStatus).map((s) => (
-                          <option
-                            key={s}
-                            value={s}
-                            className="text-gray-900 bg-white"
-                          >
-                            {STATUS_LABELS[s]}
-                          </option>
-                        ))}
-                      </select>
-                      <svg
-                        width="14"
-                        height="14"
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60"
-                        style={{ width: 14, height: 14 }}
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                      >
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
+                    {/* Solo lectura: el estado lo mueven los empleados con sus pedidos */}
+                    <div
+                      className={`w-full text-center text-xs font-bold px-3 py-2 rounded-lg border ${theme.badge}`}
+                    >
+                      {translateCopy(STATUS_LABELS[table.status] ?? table.status)}
                     </div>
 
                     <button
                       onClick={() => openEdit(table)}
                       className="text-xs font-bold text-gray-400 hover:text-[#EA1D2C] text-left transition-colors"
                     >
-                      Editar número
-                    </button>
+                       {translateCopy("Editar número")} </button>
 
                   </div>
                 </div>
@@ -448,18 +433,18 @@ const activeOrderByTableId = useMemo(() => {
 
       <Dialog
         isOpen={isFormOpen}
-        title={editingTable ? "Editar Mesa" : "Nueva Mesa"}
+        title={editingTable ? translateCopy("Editar Mesa") : translateCopy("Nueva Mesa")}
         onClose={() => setIsFormOpen(false)}
       >
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div>
-            <label className={labelClass}>Número de Mesa</label>
+            <label className={labelClass}>{translateCopy("Número de Mesa")}</label>
             <input
               type="number"
               value={number}
               onChange={(e) => setNumber(e.target.value)}
               className={inputClass}
-              placeholder="Ej: 5"
+              placeholder={translateCopy("Ej: 5")}
               min={1}
             />
           </div>
@@ -469,14 +454,13 @@ const activeOrderByTableId = useMemo(() => {
               onClick={() => setIsFormOpen(false)}
               className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
             >
-              Cancelar
-            </button>
+               {translateCopy("Cancelar")} </button>
             <button
               type="submit"
               disabled={saving}
               className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
             >
-              {saving ? "Guardando..." : "Guardar"}
+              {saving ? translateCopy("Guardando...") : translateCopy("Guardar")}
             </button>
           </div>
         </form>
@@ -484,7 +468,7 @@ const activeOrderByTableId = useMemo(() => {
 
       <Dialog
         isOpen={!!confirmDelete}
-        title="Eliminar Mesa"
+        title={translateCopy("Eliminar Mesa")}
         onClose={() => setConfirmDelete(null)}
       >
         <div className="flex items-start gap-4 mb-6">
@@ -492,35 +476,32 @@ const activeOrderByTableId = useMemo(() => {
             ⚠️
           </div>
           <p className="text-sm text-gray-600 pt-1.5">
-            ¿Seguro que deseas eliminar la mesa{" "}
+             {translateCopy("¿Seguro que deseas eliminar la mesa")}{" "}
             <strong className="text-[#111827]">
-              Mesa: {confirmDelete?.number}
+               {translateCopy("Mesa:")} {confirmDelete?.number}
             </strong>
-            ? Se borrará por completo del sistema y esta acción no se puede
-            deshacer.
-          </p>
+             {translateCopy("? Se borrará por completo del sistema y esta acción no se puede deshacer.")} </p>
         </div>
         <div className="flex justify-end gap-3">
           <button
             onClick={() => setConfirmDelete(null)}
             className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
           >
-            Cancelar
-          </button>
+             {translateCopy("Cancelar")} </button>
           <button
             onClick={handleDelete}
             disabled={saving}
             className="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
           >
-            {saving ? "Eliminando..." : "Eliminar"}
+            {saving ? translateCopy("Eliminando...") : translateCopy("Eliminar")}
           </button>
         </div>
       </Dialog>
 
       <Dialog
         isOpen={!!selectedOrderId}
-        title={selectedOrder ? `Pedido #${selectedOrder.id}` : "Pedido"}
-        subtitle={selectedOrder ? "En Mesa" : undefined}
+        title={translateCopy("Pedido")}
+        subtitle={selectedOrder ? translateCopy("En Mesa") : undefined}
         onClose={() => setSelectedOrderId(null)}
       >
         {loadingOrderDetail ? (
@@ -534,27 +515,24 @@ const activeOrderByTableId = useMemo(() => {
           </div>
         ) : selectedOrder ? (
           <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase">
-                  Cliente
-                </p>
+                   {translateCopy("Cliente")} </p>
                 <p className="font-semibold text-gray-800">
-                  {selectedOrder.customerName ?? "Sin cliente"}
+                  {selectedOrder.customerName ?? translateCopy("Sin cliente")}
                 </p>
               </div>
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase">
-                  Sede
-                </p>
+                   {translateCopy("Sede")} </p>
                 <p className="font-semibold text-gray-800">
                   {selectedOrder.branchName ?? "—"}
                 </p>
               </div>
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase">
-                  Mesa
-                </p>
+                   {translateCopy("Mesa")} </p>
                 <p className="font-semibold text-gray-800">
                   {selectedOrder.tableNumber
                     ? `#${selectedOrder.tableNumber}`
@@ -563,23 +541,20 @@ const activeOrderByTableId = useMemo(() => {
               </div>
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase">
-                  Empleado
-                </p>
+                   {translateCopy("Empleado")} </p>
                 <p className="font-semibold text-gray-800">
-                  {selectedOrder.employeeName ?? "Sin asignar"}
+                  {selectedOrder.employeeName ?? translateCopy("Sin asignar")}
                 </p>
               </div>
             </div>
 
             <div>
               <p className="text-xs font-bold text-gray-400 uppercase mb-2">
-                Productos
-              </p>
+                 {translateCopy("Productos")} </p>
               <div className="border border-gray-100 rounded-xl divide-y divide-gray-100">
                 {selectedOrder.orderDetails.length === 0 ? (
                   <p className="p-4 text-sm text-gray-400 text-center">
-                    Sin productos agregados aún.
-                  </p>
+                     {translateCopy("Sin productos agregados aún.")} </p>
                 ) : (
                   selectedOrder.orderDetails.map((detail) => (
                     <div
@@ -588,7 +563,7 @@ const activeOrderByTableId = useMemo(() => {
                     >
                       <div>
                         <p className="text-sm font-bold text-gray-800">
-                          {detail.quantity}x {detail.productName}
+                          {detail.quantity}{translateCopy("x")} {detail.productName}
                         </p>
                         {detail.notes && (
                           <p className="text-xs text-gray-500">
@@ -597,10 +572,9 @@ const activeOrderByTableId = useMemo(() => {
                         )}
                       </div>
                       <span className="text-sm font-bold text-gray-800">
-                        $
-                        {(
-                          detail.subTotal ?? detail.unitPrice * detail.quantity
-                        ).toLocaleString("es-CO")}
+                        {formatMoney(
+                          detail.subTotal ?? detail.unitPrice * detail.quantity,
+                        )}
                       </span>
                     </div>
                   ))
@@ -610,8 +584,7 @@ const activeOrderByTableId = useMemo(() => {
 
             <div>
               <p className="text-xs font-bold text-gray-400 uppercase mb-2">
-                Historial de Estados
-              </p>
+                 {translateCopy("Historial de Estados")} </p>
               {loadingHistory ? (
                 <div className="space-y-2">
                   {[1, 2].map((i) => (
@@ -623,8 +596,7 @@ const activeOrderByTableId = useMemo(() => {
                 </div>
               ) : statusHistory.length === 0 ? (
                 <p className="text-sm text-gray-400 py-2">
-                  Sin historial disponible.
-                </p>
+                   {translateCopy("Sin historial disponible.")} </p>
               ) : (
                 <div className="border border-gray-100 rounded-xl divide-y divide-gray-100">
                   {statusHistory.map((h, i) => (
@@ -644,7 +616,7 @@ const activeOrderByTableId = useMemo(() => {
                       <div className="flex-1 pb-1">
                         <div className="flex justify-between items-start">
                           <span className="text-sm font-bold text-gray-800">
-                            {ORDER_STATUS_LABELS[h.status]}
+                            {translateCopy(ORDER_STATUS_LABELS[h.status])}
                           </span>
                           <span className="text-xs text-gray-400">
                             {formatDateTime(h.changedAt)}
@@ -669,19 +641,26 @@ const activeOrderByTableId = useMemo(() => {
 
             <div className="bg-gray-50 rounded-xl p-4 space-y-1">
               <div className="flex justify-between text-sm text-gray-600">
-                <span>Subtotal</span>
+                <span>{translateCopy("Subtotal")}</span>
                 <span>
-                  ${(selectedOrder.subTotal ?? 0).toLocaleString("es-CO")}
+                  {formatMoney(selectedOrder.subTotal ?? 0)}
                 </span>
               </div>
-              <div className="flex justify-between text-sm text-gray-600">
-                <span>Impuesto</span>
-                <span>${(selectedOrder.tax ?? 0).toLocaleString("es-CO")}</span>
-              </div>
+              {(selectedOrder.tax ?? 0) > 0 && (
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>
+                    {selectedOrder.taxIncludedInPrice
+                      ? t("orderBreakdown.taxOnProducts")
+                      : translateCopy("Impuesto registrado")}
+                    {selectedOrder.taxRate > 0 ? ` (${selectedOrder.taxRate}%)` : ""}
+                  </span>
+                  <span>{formatMoney(selectedOrder.tax ?? 0)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-base font-black text-gray-900 pt-2 border-t border-gray-200">
-                <span>Total</span>
+                <span>{translateCopy("Total")}</span>
                 <span>
-                  ${(selectedOrder.total ?? 0).toLocaleString("es-CO")}
+                  {formatMoney(selectedOrder.total ?? 0)}
                 </span>
               </div>
             </div>
@@ -689,8 +668,7 @@ const activeOrderByTableId = useMemo(() => {
             {selectedOrder.notes && (
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase mb-1">
-                  Notas
-                </p>
+                   {translateCopy("Notas")} </p>
                 <p className="text-sm text-gray-600">{selectedOrder.notes}</p>
               </div>
             )}

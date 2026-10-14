@@ -1,7 +1,8 @@
 "use client";
 
+import { translateCopy, getCurrentLocale } from "@/config/copy-translations";
 import { useState, useMemo, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import {
   Clock3,
   CheckCircle2,
@@ -17,7 +18,17 @@ import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useBranches } from "@/features/branches/hooks/use-branches";
 import { Dialog } from "@/components/ui/dialog";
 import { NotificationModal } from "@/components/ui/modal";
-import { OrderStatus, OrderType, type Order } from "../types/order.types";
+import { getColombiaDayKey } from "@/lib/colombia-date";
+import {
+  OrderStatus,
+  OrderType,
+  OrderDetailStatus,
+  type Order,
+} from "../types/order.types";
+import {
+  consumeNavigationTarget,
+  pendingNavigationKeys,
+} from "@/config/pending-navigation";
 
 type NotifyState = { message: string; type: "success" | "error" } | null;
 
@@ -25,7 +36,9 @@ interface ColumnConfig {
   title: string;
   status: OrderStatus;
   icon: LucideIcon;
-  color: string;
+  accentBorder: string;
+  accentIcon: string;
+  accentBadge: string;
 }
 
 const BOARD_COLUMNS: ColumnConfig[] = [
@@ -33,35 +46,42 @@ const BOARD_COLUMNS: ColumnConfig[] = [
     title: "Nuevos",
     status: OrderStatus.Pending,
     icon: Clock3,
-    color: "from-sky-500 to-blue-600",
+    accentBorder: "border-t-amber-400",
+    accentIcon: "text-amber-500",
+    accentBadge: "bg-amber-50 text-amber-700",
   },
   {
     title: "Confirmados",
     status: OrderStatus.Confirmed,
     icon: CheckCircle2,
-    color: "from-indigo-500 to-blue-500",
+    accentBorder: "border-t-blue-400",
+    accentIcon: "text-blue-500",
+    accentBadge: "bg-blue-50 text-blue-700",
   },
   {
     title: "Cocina",
     status: OrderStatus.InPreparation,
     icon: ChefHat,
-    color: "from-orange-500 to-amber-500",
+    accentBorder: "border-t-orange-400",
+    accentIcon: "text-orange-500",
+    accentBadge: "bg-orange-50 text-orange-700",
   },
   {
     title: "Listos",
     status: OrderStatus.Ready,
     icon: PackageCheck,
-    color: "from-emerald-500 to-green-600",
+    accentBorder: "border-t-emerald-400",
+    accentIcon: "text-emerald-500",
+    accentBadge: "bg-emerald-50 text-emerald-700",
   },
 ];
 
 const STATUS_STYLES: Record<OrderStatus, string> = {
-  [OrderStatus.Pending]: "bg-sky-100 text-sky-700 border-sky-200",
-  [OrderStatus.Confirmed]: "bg-indigo-100 text-indigo-700 border-indigo-200",
-  [OrderStatus.InPreparation]:
-    "bg-orange-100 text-orange-700 border-orange-200",
-  [OrderStatus.Ready]: "bg-emerald-100 text-emerald-700 border-emerald-200",
-  [OrderStatus.Delivered]: "bg-zinc-100 text-zinc-700 border-zinc-200",
+  [OrderStatus.Pending]: "bg-amber-50 text-amber-700 border-amber-200",
+  [OrderStatus.Confirmed]: "bg-blue-50 text-blue-700 border-blue-200",
+  [OrderStatus.InPreparation]: "bg-orange-50 text-orange-700 border-orange-200",
+  [OrderStatus.Ready]: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  [OrderStatus.Delivered]: "bg-green-50 text-green-700 border-green-200",
   [OrderStatus.Cancelled]: "bg-red-100 text-red-700 border-red-200",
 };
 
@@ -82,7 +102,7 @@ const TYPE_LABELS: Record<OrderType, string> = {
 };
 
 const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat("es-CO", {
+  return new Intl.NumberFormat(getCurrentLocale(), {
     style: "currency",
     currency: "COP",
     minimumFractionDigits: 0,
@@ -92,14 +112,17 @@ const formatCurrency = (amount: number) => {
 const timeAgo = (dateString: string) => {
   const diffMs = Date.now() - new Date(dateString).getTime();
   const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "Justo ahora";
-  if (diffMin < 60) return `Hace ${diffMin} min`;
+  const relativeTime = new Intl.RelativeTimeFormat(getCurrentLocale(), {
+    numeric: "auto",
+  });
+  if (diffMin < 1) return relativeTime.format(0, "second");
+  if (diffMin < 60) return relativeTime.format(-diffMin, "minute");
   const diffH = Math.floor(diffMin / 60);
-  return `Hace ${diffH} h`;
+  return relativeTime.format(-diffH, "hour");
 };
 
 const formatDateTime = (dateString: string) => {
-  return new Date(dateString).toLocaleString("es-CO", {
+  return new Date(dateString).toLocaleString(getCurrentLocale(), {
     day: "2-digit",
     month: "short",
     hour: "numeric",
@@ -116,7 +139,25 @@ const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
   [OrderStatus.Ready]: OrderStatus.Delivered,
 };
 
+// Solo se puede cancelar mientras cocina no haya empezado: el pedido debe estar
+// Pendiente o Confirmado y ningún plato en preparación, listo o entregado.
+const canCancelOrder = (order: Order): boolean => {
+  if (
+    order.status !== OrderStatus.Pending &&
+    order.status !== OrderStatus.Confirmed
+  )
+    return false;
+
+  return !(order.orderDetails ?? []).some(
+    (d) =>
+      d.status === OrderDetailStatus.InPreparation ||
+      d.status === OrderDetailStatus.Ready ||
+      d.status === OrderDetailStatus.Delivered,
+  );
+};
+
 export const OrdersView = () => {
+  const { t } = useTranslation();
   const { session, isHydrated } = useAuth();
   const isGerente = session?.roles?.includes("GERENTE") ?? false;
   const { branches } = useBranches(isHydrated && isGerente);
@@ -128,14 +169,10 @@ export const OrdersView = () => {
   const [cancelReason, setCancelReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [notify, setNotify] = useState<NotifyState>(null);
-  const searchParams = useSearchParams();
-
   useEffect(() => {
-    const orderIdParam = searchParams.get("orderId");
-    if (orderIdParam) {
-      setSelectedOrderId(Number(orderIdParam));
-    }
-  }, [searchParams]);
+    const pendingOrderId = consumeNavigationTarget(pendingNavigationKeys.order);
+    if (pendingOrderId !== null) setSelectedOrderId(pendingOrderId);
+  }, []);
 
   const { orders, loading, error, updateStatus, cancelOrder, refetch } =
     useOrders(
@@ -149,8 +186,19 @@ const { order: selectedOrder, loading: loadingDetail } =
 const { history: statusHistory, loading: loadingHistory } =
   useOrderStatusHistory(selectedOrderId);
 
-  const activeOrders = orders.filter((o) => o.status !== OrderStatus.Cancelled);
-  const cancelledOrders = orders.filter(
+  const todayKey = getColombiaDayKey();
+  const todayOrders = useMemo(
+    () =>
+      orders.filter(
+        (order) => getColombiaDayKey(order.createdAt) === todayKey,
+      ),
+    [orders, todayKey],
+  );
+  const activeOrders = todayOrders.filter(
+    (o) =>
+      o.status !== OrderStatus.Cancelled && o.status !== OrderStatus.Delivered,
+  );
+  const cancelledOrders = todayOrders.filter(
     (o) => o.status === OrderStatus.Cancelled,
   );
 
@@ -172,15 +220,15 @@ const { history: statusHistory, loading: loadingHistory } =
     try {
       await updateStatus(order.id, { status: next });
       setNotify({
-        message: `Pedido movido a "${STATUS_LABELS[next]}"`,
+        message: `${translateCopy("Pedido movido a")} "${translateCopy(STATUS_LABELS[next])}"`,
         type: "success",
       });
     } catch (err) {
       setNotify({
         message:
           err instanceof Error
-            ? err.message
-            : "No se pudo actualizar el estado",
+            ? translateCopy(err.message)
+            : translateCopy("No se pudo actualizar el estado"),
         type: "error",
       });
     } finally {
@@ -191,7 +239,7 @@ const { history: statusHistory, loading: loadingHistory } =
   const handleCancel = async () => {
     if (!confirmCancel || !cancelReason.trim()) {
       setNotify({
-        message: "Debes indicar un motivo de cancelación",
+        message: translateCopy("Debes indicar un motivo de cancelación"),
         type: "error",
       });
       return;
@@ -199,13 +247,13 @@ const { history: statusHistory, loading: loadingHistory } =
     setSaving(true);
     try {
       await cancelOrder(confirmCancel.id, { reason: cancelReason.trim() });
-      setNotify({ message: "Pedido cancelado correctamente", type: "success" });
+      setNotify({ message: translateCopy("Pedido cancelado correctamente"), type: "success" });
       setConfirmCancel(null);
       setCancelReason("");
     } catch (err) {
       setNotify({
         message:
-          err instanceof Error ? err.message : "No se pudo cancelar el pedido",
+          err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo cancelar el pedido"),
         type: "error",
       });
     } finally {
@@ -215,25 +263,24 @@ const { history: statusHistory, loading: loadingHistory } =
 
   return (
     <>
-      <main className="flex h-full flex-col gap-8 rounded-[32px] bg-[#f5f7fb] p-6">
+      <div className="orders-workspace flex h-full min-w-0 w-full flex-col gap-8 rounded-2xl p-4 sm:rounded-[32px] sm:p-6">
         <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-zinc-200 pb-6">
           <div>
-            <h1 className="text-4xl font-black tracking-tight text-zinc-900">
-              Centro de Operaciones
+            <h1 className="text-2xl font-black tracking-tight text-zinc-900 sm:text-3xl lg:text-4xl">
+              {t("pageTitles.orders")}
             </h1>
             <p className="mt-2 text-zinc-500">
-              Monitoreo en tiempo real del flujo de pedidos.
-            </p>
+               {translateCopy("Monitoreo en tiempo real del flujo de pedidos.")} </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {isGerente && (
               <select
                 value={branchFilter}
                 onChange={(e) => setBranchFilter(e.target.value)}
-                className="text-sm font-medium text-zinc-700 bg-white border border-zinc-200 rounded-xl px-4 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                className="w-full max-w-full rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 sm:w-auto"
               >
-                <option value="">Todas las sedes</option>
+                <option value="">{translateCopy("Todas las sedes")}</option>
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}
@@ -247,14 +294,13 @@ const { history: statusHistory, loading: loadingHistory } =
                 <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500" />
               </div>
               <span className="text-xs font-bold uppercase tracking-wider text-zinc-700">
-                Sistema Operativo
-              </span>
+                 {translateCopy("Sistema Operativo")} </span>
             </div>
           </div>
         </header>
 
         {loading ? (
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-4 sm:gap-4">
             {[1, 2, 3, 4].map((i) => (
               <div
                 key={i}
@@ -264,64 +310,57 @@ const { history: statusHistory, loading: loadingHistory } =
           </div>
         ) : error ? (
           <div className="bg-red-50 border border-red-100 rounded-2xl p-6 text-sm text-red-600">
-            {error}
+            {translateCopy(error)}
           </div>
         ) : (
           <>
             <section
-              className="grid grid-cols-2 sm:grid-cols-4 gap-4"
-              aria-label="Estadísticas de pedidos"
+              className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 sm:grid-cols-4"
+              aria-label={translateCopy("Estadísticas de pedidos")}
             >
-              <StatCard title="Pedidos activos" value={activeOrders.length} />
+              <StatCard title={translateCopy("Pedidos activos")} value={activeOrders.length} />
               <StatCard
-                title="En cocina"
+                title={translateCopy("En cocina")}
                 value={ordersByStatus[OrderStatus.InPreparation]?.length || 0}
-                valueColor="text-orange-500"
               />
               <StatCard
-                title="Listos"
+                title={translateCopy("Listos")}
                 value={ordersByStatus[OrderStatus.Ready]?.length || 0}
-                valueColor="text-emerald-500"
               />
               <StatCard
-                title="Cancelados"
+                title={translateCopy("Cancelados")}
                 value={cancelledOrders.length}
-                valueColor="text-red-500"
               />
             </section>
 
-            <div className="flex gap-6 overflow-x-auto pb-4">
+            <div className="flex min-w-0 gap-4 overflow-x-auto pb-4 sm:gap-6">
               {BOARD_COLUMNS.map((column) => {
                 const columnOrders = ordersByStatus[column.status] || [];
 
                 return (
-                  <section key={column.status} className="w-[340px] shrink-0">
-                    <header
-                      className={`mb-4 rounded-2xl bg-gradient-to-r p-[1px] shadow-lg ${column.color}`}
-                    >
+                  <section key={column.status} className="min-w-[300px] flex-1">
+                    <header className={`mb-4 rounded-2xl border border-zinc-200 border-t-4 ${column.accentBorder} bg-white shadow-sm`}>
                       <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3">
                         <div className="flex items-center gap-3">
-                          <column.icon size={18} className="text-zinc-700" />
+                          <column.icon size={18} className={column.accentIcon} />
                           <div>
                             <h3 className="font-bold text-zinc-900">
-                              {column.title}
+                              {translateCopy(column.title)}
                             </h3>
                             <p className="text-xs text-zinc-500">
-                              {columnOrders.length} pedidos
-                            </p>
+                              {columnOrders.length}  {translateCopy("pedidos")} </p>
                           </div>
                         </div>
-                        <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold text-zinc-700">
+                        <span className={`rounded-full px-3 py-1 text-xs font-bold ${column.accentBadge}`}>
                           {columnOrders.length}
                         </span>
                       </div>
                     </header>
 
-                    <div className="min-h-[300px] space-y-4 rounded-3xl border border-white/50 bg-white/40 p-3 backdrop-blur-sm">
+                    <div className="order-board-list min-h-[300px] max-h-[62vh] space-y-4 overflow-y-auto rounded-3xl border border-white/50 bg-white/40 p-3 backdrop-blur-sm [scrollbar-width:thin]">
                       {columnOrders.length === 0 ? (
                         <p className="text-center text-xs text-zinc-400 py-8">
-                          Sin pedidos aquí
-                        </p>
+                           {translateCopy("Sin pedidos aquí")} </p>
                       ) : (
                         columnOrders.map((order) => (
                           <OrderCard
@@ -347,8 +386,7 @@ const { history: statusHistory, loading: loadingHistory } =
                 className="text-sm font-bold text-zinc-500 hover:text-zinc-700 flex items-center gap-2"
               >
                 <XCircle size={16} />
-                {showCancelled ? "Ocultar" : "Ver"} pedidos cancelados (
-                {cancelledOrders.length})
+                {showCancelled ? translateCopy("Ocultar") : translateCopy("Ver")}  {translateCopy("pedidos cancelados (")} {cancelledOrders.length})
               </button>
               {showCancelled && (
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -365,14 +403,14 @@ const { history: statusHistory, loading: loadingHistory } =
             </div>
           </>
         )}
-      </main>
+      </div>
 
       {/* MODAL DETALLE DEL PEDIDO */}
       <Dialog
         isOpen={!!selectedOrderId}
-        title={selectedOrder ? `Pedido #${selectedOrder.id}` : "Pedido"}
+        title={translateCopy("Pedido")}
         subtitle={
-          selectedOrder ? TYPE_LABELS[selectedOrder.orderType] : undefined
+          selectedOrder ? translateCopy(TYPE_LABELS[selectedOrder.orderType]) : undefined
         }
         onClose={() => setSelectedOrderId(null)}
       >
@@ -387,27 +425,24 @@ const { history: statusHistory, loading: loadingHistory } =
           </div>
         ) : selectedOrder ? (
           <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase">
-                  Cliente
-                </p>
+                   {translateCopy("Cliente")} </p>
                 <p className="font-semibold text-gray-800">
-                  {selectedOrder.customerName ?? "Sin cliente"}
+                  {selectedOrder.customerName ?? translateCopy("Sin cliente")}
                 </p>
               </div>
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase">
-                  Sede
-                </p>
+                   {translateCopy("Sede")} </p>
                 <p className="font-semibold text-gray-800">
                   {selectedOrder.branchName ?? "—"}
                 </p>
               </div>
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase">
-                  Mesa
-                </p>
+                   {translateCopy("Mesa")} </p>
                 <p className="font-semibold text-gray-800">
                   {selectedOrder.tableNumber
                     ? `#${selectedOrder.tableNumber}`
@@ -416,23 +451,20 @@ const { history: statusHistory, loading: loadingHistory } =
               </div>
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase">
-                  Empleado
-                </p>
+                   {translateCopy("Empleado")} </p>
                 <p className="font-semibold text-gray-800">
-                  {selectedOrder.employeeName ?? "Sin asignar"}
+                  {selectedOrder.employeeName ?? translateCopy("Sin asignar")}
                 </p>
               </div>
             </div>
 
             <div>
               <p className="text-xs font-bold text-gray-400 uppercase mb-2">
-                Productos
-              </p>
+                 {translateCopy("Productos")} </p>
               <div className="border border-gray-100 rounded-xl divide-y divide-gray-100">
                 {selectedOrder.orderDetails.length === 0 ? (
                   <p className="p-4 text-sm text-gray-400 text-center">
-                    Sin productos agregados aún.
-                  </p>
+                     {translateCopy("Sin productos agregados aún.")} </p>
                 ) : (
                   selectedOrder.orderDetails.map((detail) => (
                     <div
@@ -441,7 +473,7 @@ const { history: statusHistory, loading: loadingHistory } =
                     >
                       <div>
                         <p className="text-sm font-bold text-gray-800">
-                          {detail.quantity}x {detail.productName}
+                          {detail.quantity}{translateCopy("x")} {detail.productName}
                         </p>
                         {detail.notes && (
                           <p className="text-xs text-gray-500">
@@ -460,8 +492,7 @@ const { history: statusHistory, loading: loadingHistory } =
 
             <div>
               <p className="text-xs font-bold text-gray-400 uppercase mb-2">
-                Historial de Estados
-              </p>
+                 {translateCopy("Historial de Estados")} </p>
               {loadingHistory ? (
                 <div className="space-y-2">
                   {[1, 2].map((i) => (
@@ -473,8 +504,7 @@ const { history: statusHistory, loading: loadingHistory } =
                 </div>
               ) : statusHistory.length === 0 ? (
                 <p className="text-sm text-gray-400 py-2">
-                  Sin historial disponible.
-                </p>
+                   {translateCopy("Sin historial disponible.")} </p>
               ) : (
                 <div className="border border-gray-100 rounded-xl divide-y divide-gray-100">
                   {statusHistory.map((h, i) => (
@@ -494,7 +524,7 @@ const { history: statusHistory, loading: loadingHistory } =
                       <div className="flex-1 pb-1">
                         <div className="flex justify-between items-start">
                           <span className="text-sm font-bold text-gray-800">
-                            {STATUS_LABELS[h.status]}
+                            {translateCopy(STATUS_LABELS[h.status])}
                           </span>
                           <span className="text-xs text-gray-400">
                             {formatDateTime(h.changedAt)}
@@ -519,15 +549,22 @@ const { history: statusHistory, loading: loadingHistory } =
 
             <div className="bg-gray-50 rounded-xl p-4 space-y-1">
               <div className="flex justify-between text-sm text-gray-600">
-                <span>Subtotal</span>
+                <span>{translateCopy("Subtotal")}</span>
                 <span>{formatCurrency(selectedOrder.subTotal)}</span>
               </div>
-              <div className="flex justify-between text-sm text-gray-600">
-                <span>Impuesto</span>
-                <span>{formatCurrency(selectedOrder.tax)}</span>
-              </div>
+              {selectedOrder.tax > 0 && (
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>
+                    {selectedOrder.taxIncludedInPrice
+                      ? t("orderBreakdown.taxOnProducts")
+                      : translateCopy("Impuesto registrado")}
+                    {selectedOrder.taxRate > 0 ? ` (${selectedOrder.taxRate}%)` : ""}
+                  </span>
+                  <span>{formatCurrency(selectedOrder.tax)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-base font-black text-gray-900 pt-2 border-t border-gray-200">
-                <span>Total</span>
+                <span>{translateCopy("Total")}</span>
                 <span>{formatCurrency(selectedOrder.total)}</span>
               </div>
             </div>
@@ -535,8 +572,7 @@ const { history: statusHistory, loading: loadingHistory } =
             {selectedOrder.notes && (
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase mb-1">
-                  Notas
-                </p>
+                   {translateCopy("Notas")} </p>
                 <p className="text-sm text-gray-600">{selectedOrder.notes}</p>
               </div>
             )}
@@ -547,7 +583,7 @@ const { history: statusHistory, loading: loadingHistory } =
       {/* MODAL CANCELAR */}
       <Dialog
         isOpen={!!confirmCancel}
-        title="Cancelar Pedido"
+        title={translateCopy("Cancelar Pedido")}
         onClose={() => {
           setConfirmCancel(null);
           setCancelReason("");
@@ -555,16 +591,14 @@ const { history: statusHistory, loading: loadingHistory } =
       >
         <div className="space-y-4">
           <p className="text-sm text-gray-600">
-            ¿Seguro que deseas cancelar el pedido{" "}
-            <strong className="text-[#111827]">#{confirmCancel?.id}</strong>?
-            Indica el motivo:
-          </p>
+             {translateCopy("¿Seguro que deseas cancelar el pedido")}{" "}
+            {translateCopy("? Indica el motivo:")} </p>
           <textarea
             value={cancelReason}
             onChange={(e) => setCancelReason(e.target.value)}
             rows={3}
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-[#111827] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
-            placeholder="Ej: El cliente canceló, producto agotado, etc."
+            placeholder={translateCopy("Ej: El cliente canceló, producto agotado, etc.")}
           />
           <div className="flex justify-end gap-3">
             <button
@@ -574,14 +608,13 @@ const { history: statusHistory, loading: loadingHistory } =
               }}
               className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
             >
-              Volver
-            </button>
+               {translateCopy("Volver")} </button>
             <button
               onClick={handleCancel}
               disabled={saving}
               className="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
             >
-              {saving ? "Cancelando..." : "Cancelar Pedido"}
+              {saving ? translateCopy("Cancelando...") : translateCopy("Cancelar Pedido")}
             </button>
           </div>
         </div>
@@ -600,17 +633,12 @@ const { history: statusHistory, loading: loadingHistory } =
 interface StatCardProps {
   title: string;
   value: string | number;
-  valueColor?: string;
 }
 
-const StatCard: React.FC<StatCardProps> = ({
-  title,
-  value,
-  valueColor = "text-zinc-900",
-}) => (
+const StatCard: React.FC<StatCardProps> = ({ title, value }) => (
   <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
     <p className="text-sm font-medium text-zinc-500">{title}</p>
-    <h2 className={`mt-2 text-3xl font-black ${valueColor}`}>{value}</h2>
+    <h2 className="mt-2 text-3xl font-black text-zinc-900">{value}</h2>
   </div>
 );
 
@@ -629,32 +657,31 @@ const OrderCard: React.FC<OrderCardProps> = ({
   onCancel,
   saving,
 }) => {
-  const canAdvance = !!NEXT_STATUS[order.status];
+  // El panel web es solo de supervisión: Gerente y Administrador no
+  // mueven ni cancelan pedidos, eso lo hacen los empleados desde el móvil.
+  const canAdvance = false;
 
   return (
     <article className="group relative overflow-hidden rounded-[28px] border border-zinc-200/80 bg-white p-5 shadow-[0_10px_30px_rgba(0,0,0,0.04)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(0,0,0,0.08)]">
       <header className="relative mb-4 flex items-start justify-between">
         <div>
-          <h4 className="text-[18px] font-black tracking-tight text-zinc-900">
-            #{order.id}
-          </h4>
           <time className="text-xs font-medium text-zinc-500">
             {timeAgo(order.createdAt)}
           </time>
         </div>
         <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-700">
-          {TYPE_LABELS[order.orderType]}
+          {translateCopy(TYPE_LABELS[order.orderType])}
         </span>
       </header>
 
       <div className="relative mb-4">
         <p className="text-sm font-medium text-zinc-600">
-          {order.customerName ?? "Cliente sin registrar"}
+          {order.customerName ?? translateCopy("Cliente sin registrar")}
           {order.tableNumber ? ` · Mesa ${order.tableNumber}` : ""}
         </p>
         <p className="text-xs text-zinc-400 mt-1">
           {order.orderDetails?.length ?? 0}{" "}
-          {(order.orderDetails?.length ?? 0) === 1 ? "producto" : "productos"}
+          {(order.orderDetails?.length ?? 0) === 1 ? translateCopy("producto") : translateCopy("productos")}
         </p>
       </div>
 
@@ -662,12 +689,11 @@ const OrderCard: React.FC<OrderCardProps> = ({
         <span
           className={`rounded-full border px-3 py-1.5 text-[11px] font-bold ${STATUS_STYLES[order.status]}`}
         >
-          {STATUS_LABELS[order.status]}
+          {translateCopy(STATUS_LABELS[order.status])}
         </span>
         <div className="text-right">
           <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-            Total
-          </p>
+             {translateCopy("Total")} </p>
           <span className="text-[20px] font-black tracking-tight text-zinc-900">
             {formatCurrency(order.total)}
           </span>
@@ -679,18 +705,16 @@ const OrderCard: React.FC<OrderCardProps> = ({
           onClick={onView}
           className="flex-1 text-xs font-bold text-zinc-600 border border-zinc-200 rounded-lg py-2 hover:bg-zinc-50 transition-colors"
         >
-          Ver detalle
-        </button>
+           {translateCopy("Ver detalle")} </button>
         {canAdvance && onAdvance && (
           <button
             onClick={onAdvance}
             disabled={saving}
             className="flex-1 text-xs font-bold text-white bg-zinc-900 rounded-lg py-2 hover:bg-zinc-800 transition-colors disabled:opacity-50"
           >
-            Avanzar
-          </button>
+             {translateCopy("Avanzar")} </button>
         )}
-        {onCancel && order.status !== OrderStatus.Cancelled && (
+        {false && onCancel && canCancelOrder(order) && (
           <button
             onClick={onCancel}
             disabled={saving}

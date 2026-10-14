@@ -15,24 +15,29 @@ export function useBranchOperationalSettings(branchId: number | null) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (branchId == null) {
       setSettings(null);
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setError(null);
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       setSettings(await branchOperationalSettingsService.get(branchId));
+      setError(null);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "No se pudo cargar la configuración de la sede",
-      );
+      if (!silent) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo cargar la configuración de la sede",
+        );
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [branchId]);
 
