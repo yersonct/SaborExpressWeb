@@ -43,6 +43,18 @@ export const authService = {
     };
   },
 
+  changePassword: async (
+    currentPassword: string,
+    newPassword: string,
+    confirmPassword: string,
+  ): Promise<void> => {
+    await http.post("/Auth/change-password", {
+      currentPassword,
+      newPassword,
+      confirmPassword,
+    });
+  },
+
   // ✅ CONECTADO: POST /api/Auth/forgot-password
   // Body: { identifier }
   // ✅ CONECTADO: POST /api/Auth/forgot-password

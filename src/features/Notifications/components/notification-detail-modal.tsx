@@ -1,7 +1,11 @@
 "use client";
 
+import { translateCopy, getCurrentLocale } from "@/config/copy-translations";
+import { formatMoney } from "@/lib/format-money";
+import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { useOrderDetail } from "@/features/Order/hooks/use-order-details";
+import { hideOrderIdentifiers } from "@/lib/hide-order-identifiers";
 import { OrderDetailStatus } from "@/features/Order/types/order.types";
 import type { Notification } from "../types/notification.types";
 
@@ -38,7 +42,7 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 function formatDateTime(dateString: string) {
-  return new Date(dateString).toLocaleString("es-CO", {
+  return new Date(dateString).toLocaleString(getCurrentLocale(), {
     day: "2-digit",
     month: "short",
     hour: "numeric",
@@ -58,6 +62,7 @@ export const NotificationDetailModal = ({
   onClose,
   onMarkAsRead,
 }: NotificationDetailModalProps) => {
+  useTranslation();
   // Solo pedimos el detalle del pedido cuando la notificación es realmente de un pedido
   const isOrderRelated =
     notification?.relatedEntityType?.toLowerCase() === "order";
@@ -70,8 +75,8 @@ export const NotificationDetailModal = ({
       isOpen={!!notification}
       title={
         notification
-          ? (TYPE_LABELS[notification.type] ?? notification.title)
-          : "Notificación"
+          ? translateCopy(TYPE_LABELS[notification.type] ?? notification.title)
+          : translateCopy("Notificación")
       }
       subtitle={
         notification ? formatDateTime(notification.createdAt) : undefined
@@ -82,18 +87,17 @@ export const NotificationDetailModal = ({
         <div className="space-y-5">
           <div>
             <p className="text-sm font-bold text-gray-800">
-              {notification.title}
+              {hideOrderIdentifiers(translateCopy(notification.title))}
             </p>
             <p className="text-sm text-gray-600 mt-1 whitespace-pre-line">
-              {notification.message}
+              {hideOrderIdentifiers(translateCopy(notification.message))}
             </p>
           </div>
 
           {isOrderRelated && (
             <div>
               <p className="text-xs font-bold text-gray-400 uppercase mb-2">
-                Pedido relacionado
-              </p>
+                 {translateCopy("Pedido relacionado")} </p>
               {loadingOrder ? (
                 <div className="space-y-2">
                   {[1, 2].map((i) => (
@@ -105,19 +109,17 @@ export const NotificationDetailModal = ({
                 </div>
               ) : order ? (
                 <div className="border border-gray-100 rounded-xl p-5 space-y-5">
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-4 text-sm">
+                <div className="grid grid-cols-1 gap-x-4 gap-y-4 text-sm sm:grid-cols-2">
                     <div>
                       <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">
-                        Cliente
-                      </p>
+                         {translateCopy("Cliente")} </p>
                       <p className="font-semibold text-gray-800">
-                        {order.customerName ?? "Sin cliente"}
+                        {order.customerName ?? translateCopy("Sin cliente")}
                       </p>
                     </div>
                     <div>
                       <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">
-                        Sede
-                      </p>
+                         {translateCopy("Sede")} </p>
                       <p className="font-semibold text-gray-800">
                         {order.branchName ?? "—"}
                       </p>
@@ -126,18 +128,16 @@ export const NotificationDetailModal = ({
                       <>
                         <div>
                           <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">
-                            Mesa
-                          </p>
+                             {translateCopy("Mesa")} </p>
                           <p className="font-semibold text-gray-800">
                             {order.tableNumber ? `#${order.tableNumber}` : "—"}
                           </p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">
-                            Empleado
-                          </p>
+                             {translateCopy("Empleado")} </p>
                           <p className="font-semibold text-gray-800">
-                            {order.employeeName ?? "Sin asignar"}
+                            {order.employeeName ?? translateCopy("Sin asignar")}
                           </p>
                         </div>
                       </>
@@ -147,32 +147,29 @@ export const NotificationDetailModal = ({
                   <div className="divide-y divide-gray-100 border-t border-gray-100 pt-4">
                     {order.orderDetails.length === 0 ? (
                       <p className="text-sm text-gray-400 py-2">
-                        Sin productos agregados.
-                      </p>
+                         {translateCopy("Sin productos agregados.")} </p>
                     ) : (
                       order.orderDetails.map((d) => (
                         <div key={d.id} className="py-3 first:pt-0 last:pb-0">
                           <div className="flex justify-between items-start gap-2">
                             <p className="text-sm font-semibold text-gray-800">
-                              {d.quantity}x {d.productName}
+                              {d.quantity}{translateCopy("x")} {d.productName}
                             </p>
                             <span className="text-sm font-bold text-gray-800 shrink-0">
-                              $
-                              {(
-                                d.subTotal ?? d.unitPrice * d.quantity
-                              ).toLocaleString("es-CO")}
+                              {formatMoney(
+                                d.subTotal ?? d.unitPrice * d.quantity,
+                              )}
                             </span>
                           </div>
                           <div className="flex flex-wrap items-center gap-1.5 mt-2">
                             {d.isToGo && (
                               <span className="text-[10px] font-bold px-2 py-1 rounded bg-blue-100 text-blue-700">
-                                Para Llevar
-                              </span>
+                                 {translateCopy("Para Llevar")} </span>
                             )}
                             <span
                               className={`text-[10px] font-bold px-2 py-1 rounded ${DETAIL_STATUS_STYLES[d.status]}`}
                             >
-                              {DETAIL_STATUS_LABELS[d.status]}
+                              {translateCopy(DETAIL_STATUS_LABELS[d.status])}
                             </span>
                           </div>
                           {d.notes && (
@@ -186,35 +183,32 @@ export const NotificationDetailModal = ({
                   </div>
 
                   <div className="flex justify-between text-base font-black text-gray-900 pt-4 border-t border-gray-200">
-                    <span>Total</span>
-                    <span>${(order.total ?? 0).toLocaleString("es-CO")}</span>
+                    <span>{translateCopy("Total")}</span>
+                    <span>{formatMoney(order.total ?? 0)}</span>
                   </div>
                 </div>
               ) : (
                 <p className="text-sm text-gray-400">
-                  No se pudo cargar el pedido relacionado.
-                </p>
+                   {translateCopy("No se pudo cargar el pedido relacionado.")} </p>
               )}
             </div>
           )}
 
-          <div className="flex justify-end gap-3 pt-2">
+          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
             <button
               onClick={onClose}
-              className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
+              className="w-full rounded-xl border border-gray-300 bg-white px-6 py-2.5 text-sm font-bold text-[#111827] transition-colors hover:bg-gray-100 sm:w-auto"
             >
-              Cerrar
-            </button>
+               {translateCopy("Cerrar")} </button>
             {!notification.isRead && (
               <button
                 onClick={() => {
                   onMarkAsRead(notification.id);
                   onClose();
                 }}
-                className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors"
+                className="w-full rounded-xl bg-[#EA1D2C] px-6 py-2.5 text-sm font-bold text-white transition-colors hover:bg-[#d11a28] sm:w-auto"
               >
-                Marcar como leída
-              </button>
+                 {translateCopy("Marcar como leída")} </button>
             )}
           </div>
         </div>

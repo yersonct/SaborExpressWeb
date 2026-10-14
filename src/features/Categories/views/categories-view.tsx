@@ -1,6 +1,8 @@
 "use client";
 
+import { translateCopy } from "@/config/copy-translations";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { NotificationModal } from "@/components/ui/modal";
 import { useCategories } from "../hooks/use-categories";
@@ -20,8 +22,16 @@ const labelClass =
   "block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2";
 
 const ITEMS_PER_PAGE = 6;
-
+const EMPTY_TRANSLATIONS = {
+  nameEn: "",
+  namePt: "",
+  nameFr: "",
+  descriptionEn: "",
+  descriptionPt: "",
+  descriptionFr: "",
+};
 export const CategoriesView = () => {
+  useTranslation();
   const {
     categories,
     loading,
@@ -39,6 +49,7 @@ export const CategoriesView = () => {
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [translations, setTranslations] = useState(EMPTY_TRANSLATIONS);
   const [status, setStatus] = useState(true);
   const [formErrors, setFormErrors] = useState<CategoryFormErrors>({});
   const [currentPage, setCurrentPage] = useState(1);
@@ -47,6 +58,7 @@ export const CategoriesView = () => {
     setEditingCategory(null);
     setName("");
     setDescription("");
+    setTranslations(EMPTY_TRANSLATIONS);
     setStatus(true);
     setFormErrors({});
     setIsFormOpen(true);
@@ -56,6 +68,14 @@ export const CategoriesView = () => {
     setEditingCategory(category);
     setName(category.name);
     setDescription(category.description);
+    setTranslations({
+      nameEn: category.nameEn ?? "",
+      namePt: category.namePt ?? "",
+      nameFr: category.nameFr ?? "",
+      descriptionEn: category.descriptionEn ?? "",
+      descriptionPt: category.descriptionPt ?? "",
+      descriptionFr: category.descriptionFr ?? "",
+    });
     setStatus(category.status);
     setFormErrors({});
     setIsFormOpen(true);
@@ -74,17 +94,34 @@ export const CategoriesView = () => {
     if (hasCategoryFormErrors(errors)) return;
 
     setSaving(true);
+    const localizedFields = {
+      nameEn: translations.nameEn.trim(),
+      namePt: translations.namePt.trim(),
+      nameFr: translations.nameFr.trim(),
+      descriptionEn: translations.descriptionEn.trim(),
+      descriptionPt: translations.descriptionPt.trim(),
+      descriptionFr: translations.descriptionFr.trim(),
+    };
     try {
       if (editingCategory) {
-        await updateCategory(editingCategory.id, { name, description, status });
+        await updateCategory(editingCategory.id, {
+          name,
+          description,
+          status,
+          ...localizedFields,
+        });
         setNotify({
-          message: "Categoría actualizada correctamente",
+          message: translateCopy("Categoría actualizada correctamente"),
           type: "success",
         });
       } else {
-        await createCategory({ name, description });
+        await createCategory({
+          name,
+          description,
+          ...localizedFields,
+        });
         setNotify({
-          message: "Categoría creada correctamente",
+          message: translateCopy("Categoría creada correctamente"),
           type: "success",
         });
       }
@@ -93,8 +130,8 @@ export const CategoriesView = () => {
       setNotify({
         message:
           err instanceof Error
-            ? err.message
-            : "No se pudo guardar la categoría",
+            ? translateCopy(err.message)
+            : translateCopy("No se pudo guardar la categoría"),
         type: "error",
       });
     } finally {
@@ -115,14 +152,14 @@ const handleDelete = async () => {
   try {
     await deleteCategory(confirmDelete.id);
     setNotify({
-      message: "Categoría eliminada correctamente",
+      message: translateCopy("Categoría eliminada correctamente"),
       type: "success",
     });
     setConfirmDelete(null);
   } catch (err) {
     setNotify({
       message:
-        err instanceof Error ? err.message : "No se pudo eliminar la categoría",
+        err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo eliminar la categoría"),
       type: "error",
     });
     setConfirmDelete(null);
@@ -133,27 +170,24 @@ const handleDelete = async () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-[#111827] tracking-tight">
-            Categorías del Menú
-          </h2>
+             {translateCopy("Categorías del Menú")} </h2>
           <p className="text-sm text-gray-500 mt-1">
-            Organiza los productos en categorías (ej. Bebidas, Entradas).
-          </p>
+             {translateCopy("Organiza los productos en categorías (ej. Bebidas, Entradas).")} </p>
           <p className="text-sm font-semibold text-[#EA1D2C] mt-2">
             {categories.length}{" "}
             {categories.length === 1
-              ? "categoría registrada"
-              : "categorías registradas"}
+              ? translateCopy("categoría registrada")
+              : translateCopy("categorías registradas")}
           </p>
         </div>
         <button
           onClick={openCreate}
-          className="bg-[#EA1D2C] hover:bg-red-700 text-white font-bold py-2.5 px-5 rounded-xl text-sm shadow-sm transition-all flex items-center gap-2 hover:scale-[1.02]"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#EA1D2C] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-all hover:scale-[1.02] hover:bg-red-700 sm:w-auto"
         >
-          <span className="text-lg leading-none">+</span> Nueva Categoría
-        </button>
+          <span className="text-lg leading-none">+</span>  {translateCopy("Nueva Categoría")} </button>
       </div>
 
       <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
@@ -168,28 +202,25 @@ const handleDelete = async () => {
             ))}
           </div>
         ) : error ? (
-          <div className="p-6 text-sm text-red-600">{error}</div>
+          <div className="p-6 text-sm text-red-600">{translateCopy(error)}</div>
         ) : categories.length === 0 ? (
-          <div className="p-16 text-center">
+          <div className="p-6 text-center sm:p-16">
             <div className="text-5xl mb-4">🏷️</div>
             <p className="text-gray-400 font-medium">
-              No hay categorías registradas todavía.
-            </p>
+               {translateCopy("No hay categorías registradas todavía.")} </p>
           </div>
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full min-w-[620px] text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-50/50 text-xs text-gray-500 uppercase tracking-wider">
-                    <th className="px-5 py-3 font-semibold">Nombre</th>
-                    <th className="px-5 py-3 font-semibold">Descripción</th>
+                    <th className="px-5 py-3 font-semibold">{translateCopy("Nombre")}</th>
+                    <th className="px-5 py-3 font-semibold">{translateCopy("Descripción")}</th>
                     <th className="px-5 py-3 font-semibold text-center">
-                      Estado
-                    </th>
+                       {translateCopy("Estado")} </th>
                     <th className="px-5 py-3 font-semibold text-right">
-                      Acciones
-                    </th>
+                       {translateCopy("Acciones")} </th>
                   </tr>
                 </thead>
                 <tbody className="text-sm divide-y divide-gray-100">
@@ -219,7 +250,7 @@ const handleDelete = async () => {
                               : "bg-gray-100 text-gray-500 border-gray-200"
                           }`}
                         >
-                          {category.status ? "Activa" : "Inactiva"}
+                          {translateCopy(category.status ? "Activa" : "Inactiva")}
                         </span>
                       </td>
                       <td className="px-5 py-4 text-right">
@@ -228,14 +259,12 @@ const handleDelete = async () => {
                             onClick={() => openEdit(category)}
                             className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
                           >
-                            Editar
-                          </button>
+                             {translateCopy("Editar")} </button>
                           <button
                             onClick={() => setConfirmDelete(category)}
                             className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 border border-red-200 hover:bg-red-50 transition-colors"
                           >
-                            Eliminar
-                          </button>
+                             {translateCopy("Eliminar")} </button>
                         </div>
                       </td>
                     </tr>
@@ -245,22 +274,21 @@ const handleDelete = async () => {
             </div>
 
             {totalPages > 1 && (
-              <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100">
+              <div className="flex flex-col gap-3 border-t border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
                 <p className="text-xs text-gray-500">
-                  Mostrando {startIndex + 1}–
-                  {Math.min(startIndex + ITEMS_PER_PAGE, categories.length)} de{" "}
+                   {translateCopy("Mostrando")} {startIndex + 1}–
+                  {Math.min(startIndex + ITEMS_PER_PAGE, categories.length)}  {translateCopy("de")}{" "}
                   {categories.length}
                 </p>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
                     className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    Anterior
-                  </button>
+                     {translateCopy("Anterior")} </button>
                   <span className="px-3 py-1.5 text-xs font-bold text-gray-500">
-                    Página {currentPage} de {totalPages}
+                     {translateCopy("Página")} {currentPage}  {translateCopy("de")} {totalPages}
                   </span>
                   <button
                     onClick={() =>
@@ -269,8 +297,7 @@ const handleDelete = async () => {
                     disabled={currentPage === totalPages}
                     className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    Siguiente
-                  </button>
+                     {translateCopy("Siguiente")} </button>
                 </div>
               </div>
             )}
@@ -281,61 +308,85 @@ const handleDelete = async () => {
       {/* Formulario crear/editar */}
       <Dialog
         isOpen={isFormOpen}
-        title={editingCategory ? "Editar Categoría" : "Nueva Categoría"}
+        title={editingCategory ? translateCopy("Editar Categoría") : translateCopy("Nueva Categoría")}
         subtitle={
           editingCategory
-            ? `Actualizando "${editingCategory.name}"`
-            : "Registra una nueva categoría"
+            ? `${translateCopy("Actualizando")} "${editingCategory.name}"`
+            : translateCopy("Registra una nueva categoría")
         }
         onClose={() => setIsFormOpen(false)}
       >
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div>
-            <label className={labelClass}>Nombre</label>
+            <label className={labelClass}>{translateCopy("Nombre")}</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className={inputClass}
-              placeholder="Ej: Bebidas"
+              placeholder={translateCopy("Ej: Bebidas")}
             />
             {formErrors.name && (
-              <p className="text-xs text-red-500 mt-1">{formErrors.name}</p>
+              <p className="text-xs text-red-500 mt-1">{translateCopy(formErrors.name)}</p>
             )}
           </div>
           <div>
-            <label className={labelClass}>Descripción</label>
+            <label className={labelClass}>{translateCopy("Descripción")}</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
               className={`${inputClass} resize-none`}
-              placeholder="Ej: Jugos, gaseosas y bebidas frías"
+              placeholder={translateCopy("Ej: Jugos, gaseosas y bebidas frías")}
             />
             {formErrors.description && (
               <p className="text-xs text-red-500 mt-1">
-                {formErrors.description}
+                {translateCopy(formErrors.description)}
               </p>
             )}
-          </div>{" "}
+          </div>
           {editingCategory && (
             <div className="flex items-center justify-between pt-3 border-t border-gray-100">
               <div>
-                <p className="text-sm font-bold text-[#111827]">
-                  Categoría activa
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-bold text-[#111827]">
+                    {translateCopy("Categoría activa")}
+                  </p>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      status
+                        ? "bg-green-100 text-green-800"
+                        : "bg-slate-600 text-white"
+                    }`}
+                  >
+                    {translateCopy(status ? "Activa" : "Inactiva")}
+                  </span>
+                </div>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  Determina si aparece disponible en el menú.
-                </p>
+                   {translateCopy("Determina si aparece disponible en el menú.")} </p>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
                   type="checkbox"
                   checked={status}
                   onChange={(e) => setStatus(e.target.checked)}
-                  className="sr-only peer"
+                  role="switch"
+                  aria-checked={status}
+                  aria-label={translateCopy("Categoría activa")}
+                  className="peer sr-only"
                 />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+                <span
+                  aria-hidden="true"
+                  className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${
+                    status ? "bg-emerald-500" : "bg-slate-500"
+                  } peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[#EA1D2C]`}
+                >
+                  <span
+                    className={`pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                      status ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </span>
               </label>
             </div>
           )}
@@ -345,14 +396,13 @@ const handleDelete = async () => {
               onClick={() => setIsFormOpen(false)}
               className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
             >
-              Cancelar
-            </button>
+               {translateCopy("Cancelar")} </button>
             <button
               type="submit"
               disabled={saving}
               className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
             >
-              {saving ? "Guardando..." : "Guardar"}
+              {translateCopy(saving ? "Guardando..." : "Guardar")}
             </button>
           </div>
         </form>
@@ -361,7 +411,7 @@ const handleDelete = async () => {
       {/* Confirmación de borrado */}
       <Dialog
         isOpen={!!confirmDelete}
-        title="Eliminar Categoría"
+        title={translateCopy("Eliminar Categoría")}
         onClose={() => setConfirmDelete(null)}
       >
         <div className="flex items-start gap-4 mb-6">
@@ -369,24 +419,21 @@ const handleDelete = async () => {
             ⚠️
           </div>
           <p className="text-sm text-gray-600 pt-1.5">
-            ¿Seguro que deseas eliminar la categoría{" "}
-            <strong className="text-[#111827]">{confirmDelete?.name}</strong>?
-            Esta acción no se puede deshacer.
-          </p>
+             {translateCopy("¿Seguro que deseas eliminar la categoría")}{" "}
+            <strong className="text-[#111827]">{confirmDelete?.name}</strong>{translateCopy("? Esta acción no se puede deshacer.")} </p>
         </div>
         <div className="flex justify-end gap-3">
           <button
             onClick={() => setConfirmDelete(null)}
             className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
           >
-            Cancelar
-          </button>
+             {translateCopy("Cancelar")} </button>
           <button
             onClick={handleDelete}
             disabled={saving}
             className="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
           >
-            {saving ? "Eliminando..." : "Eliminar"}
+            {saving ? translateCopy("Eliminando...") : translateCopy("Eliminar")}
           </button>
         </div>
       </Dialog>

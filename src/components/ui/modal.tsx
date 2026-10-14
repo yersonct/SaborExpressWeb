@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next'; // 1. Importamos el hook
+import { translateCopy } from '@/config/copy-translations';
 
 interface ModalProps {
   isOpen: boolean;
@@ -22,19 +23,20 @@ export const NotificationModal = ({
   const { t } = useTranslation(); // 2. Inicializamos el traductor
 
   useEffect(() => {
-    if (isOpen) {
-      setVisible(true);
+    if (!isOpen) return;
 
-      if (autoClose) {
-        const timer = setTimeout(() => {
-          setVisible(false);
-          setTimeout(() => {
-            onClose();
-          }, 300);
-        }, 3000);
-        return () => clearTimeout(timer);
-      }
-    }
+    const frame = window.requestAnimationFrame(() => setVisible(true));
+    if (!autoClose) return () => window.cancelAnimationFrame(frame);
+
+    const timer = setTimeout(() => {
+      setVisible(false);
+      setTimeout(() => onClose(), 300);
+    }, 3000);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
   }, [isOpen, onClose, autoClose]);
 
   const handleManualClose = () => {
@@ -56,6 +58,8 @@ export const NotificationModal = ({
         flex
         items-center
         justify-center
+        overflow-y-auto
+        p-3
         bg-black/50
         backdrop-blur-sm
         transition-all
@@ -67,16 +71,20 @@ export const NotificationModal = ({
         onClick={(e) => e.stopPropagation()}
         className={`
           relative
-          w-[90%]
+          w-full
           max-w-md
+          max-h-[90dvh]
+          overflow-y-auto
           bg-white
           rounded-3xl
           shadow-[0_20px_80px_rgba(0,0,0,0.25)]
           border
           border-[#E5E7EB]
           overflow-hidden
-          px-8
-          py-10
+          px-6
+          py-7
+          sm:px-8
+          sm:py-10
           flex
           flex-col
           items-center
@@ -128,9 +136,8 @@ export const NotificationModal = ({
           {type === 'warning' && t('modal.warning')}
         </h2>
 
-        {/* NOTA: El mensaje en sí (message) lo tienes que traducir desde el componente que llama al modal (ej. LoginView o AuditView) antes de pasarlo como prop */}
         <p className="text-gray-500 leading-relaxed text-base max-w-sm mb-8">
-          {message}
+          {translateCopy(message)}
         </p>
 
         {!autoClose && (

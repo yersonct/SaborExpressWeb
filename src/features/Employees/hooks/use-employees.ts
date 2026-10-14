@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "@/features/auth/hooks/use-auth";
+import { useAdminDataChanged } from "@/features/Dashboard/hooks/use-admin-data-changed";
+import { useRealtimeConnectionStatus } from "@/features/Dashboard/hooks/use-realtime-events";
 import { employeeService } from "../services/employee.service";
 import type {
   Employee,
@@ -10,25 +13,33 @@ import type {
 } from "../types/employee.types";
 
 export function useEmployees(estado: EmployeeStatusFilter = "activo") {
+  const { session } = useAuth();
+  const userId = session?.userId ?? null;
+  const realtimeStatus = useRealtimeConnectionStatus(userId);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const fetchEmployees = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const fetchEmployees = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const data = await employeeService.getAll(estado);
       const sorted = [...data].sort((a, b) => b.id - a.id);
       setEmployees(sorted);
+      setError("");
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "No se pudieron cargar los empleados",
-      );
+      if (!silent) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudieron cargar los empleados",
+        );
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [estado]);
 
@@ -36,20 +47,35 @@ export function useEmployees(estado: EmployeeStatusFilter = "activo") {
     fetchEmployees();
   }, [fetchEmployees]);
 
+  const refreshAfterChange = useCallback(() => {
+    void fetchEmployees(true);
+  }, [fetchEmployees]);
+  useAdminDataChanged(
+    userId,
+    ["Employees", "EmployeeSchedules"],
+    refreshAfterChange,
+    refreshAfterChange,
+  );
+
   const createEmployee = async (payload: CreateEmployeePayload) => {
     const result = await employeeService.create(payload);
-    await fetchEmployees();
+    if (realtimeStatus !== "connected") await fetchEmployees(true);
     return result;
   };
 
   const updateEmployee = async (id: number, payload: UpdateEmployeePayload) => {
     await employeeService.update(id, payload);
-    await fetchEmployees();
+    if (realtimeStatus !== "connected") await fetchEmployees(true);
   };
 
   const deactivateEmployee = async (id: number) => {
     await employeeService.deactivate(id);
-    await fetchEmployees();
+    if (realtimeStatus !== "connected") await fetchEmployees(true);
+  };
+
+  const deleteEmployeePermanently = async (id: number) => {
+    await employeeService.deletePermanently(id);
+    if (realtimeStatus !== "connected") await fetchEmployees(true);
   };
 
   return {
@@ -59,6 +85,7 @@ export function useEmployees(estado: EmployeeStatusFilter = "activo") {
     createEmployee,
     updateEmployee,
     deactivateEmployee,
+    deleteEmployeePermanently,
     refetch: fetchEmployees,
   };
 }

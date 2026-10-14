@@ -1,5 +1,7 @@
 "use client";
 
+import { translateCopy } from "@/config/copy-translations";
+import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { useEmployees } from "@/features/Employees/hooks/use-employees";
 import type { Branch } from "../types/branch.types";
@@ -13,6 +15,7 @@ export const BranchEmployeesModal = ({
   branch,
   onClose,
 }: BranchEmployeesModalProps) => {
+  useTranslation();
   // Reutilizamos el mismo hook de siempre; solo hace falta traer activos.
   const { employees, loading } = useEmployees("activo");
 
@@ -23,10 +26,10 @@ export const BranchEmployeesModal = ({
   return (
     <Dialog
       isOpen={!!branch}
-      title={branch ? `Empleados de ${branch.name}` : "Empleados"}
+      title={branch ? `${translateCopy("Empleados de")} ${branch.name}` : translateCopy("Empleados")}
       subtitle={
         branch
-          ? `${branchEmployees.length} ${branchEmployees.length === 1 ? "empleado activo" : "empleados activos"}`
+          ? `${branchEmployees.length} ${translateCopy(branchEmployees.length === 1 ? "empleado activo" : "empleados activos")}`
           : undefined
       }
       onClose={onClose}
@@ -42,14 +45,13 @@ export const BranchEmployeesModal = ({
         </div>
       ) : branchEmployees.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-8">
-          Esta sede aún no tiene empleados activos asignados.
-        </p>
+           {translateCopy("Esta sede aún no tiene empleados activos asignados.")} </p>
       ) : (
         <div className="space-y-2 max-h-96 overflow-y-auto">
           {branchEmployees.map((emp: any) => (
             <div
               key={emp.id}
-              className="flex items-center justify-between p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors"
+              className="branch-employee-row flex items-center justify-between p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors"
             >
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg bg-[#111827] text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
@@ -61,8 +63,8 @@ export const BranchEmployeesModal = ({
                   </p>
                   <p className="text-xs text-gray-500">
                     {emp.roleNames?.length > 0
-                      ? emp.roleNames.join(", ")
-                      : "Sin rol asignado"}
+                      ? emp.roleNames.map(translateCopy).join(", ")
+                      : translateCopy("Sin rol asignado")}
                   </p>
                 </div>
               </div>

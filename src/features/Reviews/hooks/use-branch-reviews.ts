@@ -8,8 +8,15 @@ import type {
   DeliveryRating,
   CombinedReview,
 } from "../types/review.types";
+import { useAuth } from "@/features/auth/hooks/use-auth";
+import {
+  useRealtimeEvents,
+} from "@/features/Dashboard/hooks/use-realtime-events";
 
 export function useBranchReviews(branchId: number | null) {
+  const { session } = useAuth();
+  const userId = session?.userId ?? null;
+
   const [reviews, setReviews] = useState<Review[]>([]);
   const [summary, setSummary] = useState<BranchReviewSummary | null>(null);
   const [deliveryRatings, setDeliveryRatings] = useState<DeliveryRating[]>([]);
@@ -17,45 +24,75 @@ export function useBranchReviews(branchId: number | null) {
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    if (branchId == null) {
-      setReviews([]);
-      setSummary(null);
-      setDeliveryRatings([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
+  // silent = true: recarga en segundo plano, sin esqueleto ni errores en pantalla
+  const load = useCallback(
+    async (silent = false) => {
+      if (branchId == null) {
+        setReviews([]);
+        setSummary(null);
+        setDeliveryRatings([]);
+        setLoading(false);
+        return;
+      }
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
 
-    // allSettled: si un endpoint falla (ej. summary para Administrador),
-    // los otros se siguen mostrando.
-    const [reviewsRes, summaryRes, ratingsRes] = await Promise.allSettled([
-      reviewService.getByBranch(branchId),
-      reviewService.getBranchSummary(branchId),
-      reviewService.getDeliveryRatings(branchId),
-    ]);
+      // allSettled: si un endpoint falla (ej. summary para Administrador),
+      // los otros se siguen mostrando.
+      const [reviewsRes, summaryRes, ratingsRes] = await Promise.allSettled([
+        reviewService.getByBranch(branchId),
+        reviewService.getBranchSummary(branchId),
+        reviewService.getDeliveryRatings(branchId),
+      ]);
 
-    setReviews(reviewsRes.status === "fulfilled" ? reviewsRes.value : []);
-    setSummary(summaryRes.status === "fulfilled" ? summaryRes.value : null);
-    setDeliveryRatings(
-      ratingsRes.status === "fulfilled" ? ratingsRes.value : [],
-    );
+      // En una recarga silenciosa, si todo falló se conserva lo que ya se ve
+      const allFailed =
+        reviewsRes.status === "rejected" &&
+        summaryRes.status === "rejected" &&
+        ratingsRes.status === "rejected";
+      if (silent && allFailed) return;
 
-    if (reviewsRes.status === "rejected" && ratingsRes.status === "rejected") {
-      const reason = reviewsRes.reason;
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : "No se pudieron cargar las reseñas",
+      setReviews(reviewsRes.status === "fulfilled" ? reviewsRes.value : []);
+      setSummary(summaryRes.status === "fulfilled" ? summaryRes.value : null);
+      setDeliveryRatings(
+        ratingsRes.status === "fulfilled" ? ratingsRes.value : [],
       );
-    }
-    setLoading(false);
-  }, [branchId]);
 
+      if (
+        !silent &&
+        reviewsRes.status === "rejected" &&
+        ratingsRes.status === "rejected"
+      ) {
+        const reason = reviewsRes.reason;
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "No se pudieron cargar las reseñas",
+        );
+      }
+      if (!silent) setLoading(false);
+    },
+    [branchId],
+  );
+
+  // Carga inicial y al cambiar de sede
   useEffect(() => {
     load();
   }, [load]);
+
+  // Tiempo real: el back emite ReviewsChanged al crear, editar, borrar o calificar
+  const refreshImmediately = useCallback(() => {
+    void load(true);
+  }, [load]);
+
+  useRealtimeEvents(
+    userId,
+    ["ReviewsChanged"],
+    refreshImmediately,
+    refreshImmediately,
+  );
 
   const removeReview = useCallback(async (id: number) => {
     setDeletingId(id);
@@ -125,6 +162,6 @@ export function useBranchReviews(branchId: number | null) {
     error,
     deletingId,
     removeReview,
-    reload: load,
+    reload: () => load(),
   };
 }
