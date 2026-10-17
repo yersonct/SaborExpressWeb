@@ -1,5 +1,6 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
 import { translateCopy } from "@/config/copy-translations";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -45,12 +46,12 @@ const BranchesManagerView = () => {
   const { t } = useTranslation();
   const { branches, loading, error, createBranch, updateBranch, deleteBranch } =
     useBranches(true);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useRememberedUiState<number>("branches", "page", 1);
   const ITEMS_PER_PAGE = 6;
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<
+  const [search, setSearch] = useRememberedUiState<string>("branches", "search", "");
+  const [statusFilter, setStatusFilter] = useRememberedUiState<
     "all" | "active" | "inactive"
-  >("all");
+  >("branches", "status", "all");
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
@@ -160,8 +161,8 @@ const BranchesManagerView = () => {
 
   // Si al eliminar o filtrar la página actual deja de existir, retrocede
   useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages);
-  }, [currentPage, totalPages]);
+    if (!loading && currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages, loading]);
   return (
     <>
       <div className="space-y-6 pb-10">

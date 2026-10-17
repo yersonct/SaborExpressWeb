@@ -1,7 +1,8 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
 import { translateCopy, getCurrentLocale } from "@/config/copy-translations";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useEmployeeSchedules } from "../hooks/use-employee-schedules";
 import { Dialog } from "@/components/ui/dialog";
@@ -148,7 +149,7 @@ export const SchedulesView = () => {
   const { branch: myBranch } = useMyBranch(!!session && !isGerente);
 
   const [allBranches, setAllBranches] = useState<Branch[]>([]);
-  const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
+  const [selectedBranchId, setSelectedBranchId, branchReady] = useRememberedUiState<number | null>("schedules", "branch", null);
   const [transferTarget, setTransferTarget] = useState<any>(null);
   const [transferBranchId, setTransferBranchId] = useState<number | "">("");
   const [transferring, setTransferring] = useState(false);
@@ -189,14 +190,19 @@ export const SchedulesView = () => {
   const branchId = selectedBranchId;
 
   const PAGE_SIZE = 10;
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useRememberedUiState<string>("schedules", "search", "");
+  const [page, setPage] = useRememberedUiState<number>("schedules", "page", 1);
 
-  // Al cambiar de sede, vuelve a la primera página y limpia la búsqueda
+  // Limpiamos filtros solo al cambiar realmente de sede, no al restaurar la pantalla.
+  const previousBranchId = useRef<number | null>(null);
   useEffect(() => {
-    setPage(1);
-    setSearch("");
-  }, [branchId]);
+    if (!branchReady) return;
+    if (previousBranchId.current !== null && previousBranchId.current !== branchId) {
+      setPage(1);
+      setSearch("");
+    }
+    previousBranchId.current = branchId;
+  }, [branchId, branchReady, setPage, setSearch]);
 
   const {
     schedules,
@@ -322,7 +328,12 @@ export const SchedulesView = () => {
 
   // La semana sigue arrancando en "hoy" por defecto, pero se puede
   // navegar libremente hacia atrás para CONSULTAR semanas pasadas.
-  const [weekStart, setWeekStart] = useState<Date>(() => startOfToday());
+  const [savedWeekIso, setSavedWeekIso] = useRememberedUiState(
+    "schedules", "weekStart", startOfToday().toISOString(),
+  );
+  const parsedWeek = new Date(savedWeekIso);
+  const weekStart = Number.isNaN(parsedWeek.getTime()) ? startOfToday() : parsedWeek;
+  const setWeekStart = (date: Date) => setSavedWeekIso(date.toISOString());
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
     d.setDate(weekStart.getDate() + i);

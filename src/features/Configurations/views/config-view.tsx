@@ -1,5 +1,6 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
 import { translateCopy } from "@/config/copy-translations";
 import { useCallback, useState, useEffect, useRef } from "react";
 import { useAuth } from "@/features/auth/hooks/use-auth";
@@ -14,12 +15,13 @@ import { QRCodeCanvas } from "qrcode.react";
 import { useRealtimeEvents } from "@/features/Dashboard/hooks/use-realtime-events";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
+import { sanitizeNumber, finalizeNumber } from "@/lib/numeric-input";
 
 const inputClass =
   "w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-[#111827] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#111827] focus:border-transparent transition-all";
 
 export const ConfigView = () => {
-  const [activeTab, setActiveTab] = useState("perfil");
+  const [activeTab, setActiveTab] = useRememberedUiState<"perfil" | "negocio" | "carta">("settings", "activeTab", "perfil");
   const { t } = useTranslation();
   const { logout, session } = useAuth();
   const router = useRouter();
@@ -29,7 +31,7 @@ export const ConfigView = () => {
   const { branches, updateBranch } = useBranches(isGerente);
   // Sede que el Gerente está configurando en la pestaña "Ajustes del
   // Restaurante". El Administrador no elige nada, siempre es la suya.
-  const [settingsBranchId, setSettingsBranchId] = useState<number | "">("");
+  const [settingsBranchId, setSettingsBranchId] = useRememberedUiState<number | "">("settings", "branch", "");
 
   const {
     branch: myBranch,
@@ -46,13 +48,14 @@ export const ConfigView = () => {
     : myBranch;
 
   // El QR del gerente siempre corresponde a una sede específica.
-  const [qrBranchId, setQrBranchId] = useState<number | "">("");
+  const [qrBranchId, setQrBranchId, qrBranchReady] = useRememberedUiState<number | "">("settings", "qrBranch", "");
 
   useEffect(() => {
-    if (isGerente && qrBranchId === "" && branches.length > 0) {
+    if (!qrBranchReady || !isGerente || branches.length === 0) return;
+    if (qrBranchId === "" || !branches.some((b) => b.id === qrBranchId)) {
       setQrBranchId(branches[0].id);
     }
-  }, [branches, isGerente, qrBranchId]);
+  }, [branches, isGerente, qrBranchId, qrBranchReady]);
 
   const effectiveBranchId = isGerente
     ? qrBranchId === ""
@@ -77,6 +80,12 @@ export const ConfigView = () => {
     useState<UpdateBranchOperationalSettingsPayload | null>(null);
   const [settingsSavedMsg, setSettingsSavedMsg] = useState("");
   const [isEditingOp, setIsEditingOp] = useState(false);
+  const [numText, setNumText] = useState({
+    taxRate: "",
+    deliveryFee: "",
+    deliveryRadiusKm: "",
+    maxActive: "",
+  });
 
   // Cuando llegan (o se guardan) los ajustes, el borrador se reinicia con ellos
   useEffect(() => {
@@ -84,12 +93,16 @@ export const ConfigView = () => {
     if (opSettings) {
       const { branchId, updatedAt, isDefault, ...editable } = opSettings;
       const configuredCapacity = Number(editable.maxActiveDeliveriesPerCourier);
-      setDraft({
-        ...editable,
-        maxActiveDeliveriesPerCourier:
-          Number.isInteger(configuredCapacity) && configuredCapacity >= 1
-            ? configuredCapacity
-            : 4,
+      const capacity =
+        Number.isInteger(configuredCapacity) && configuredCapacity >= 1
+          ? configuredCapacity
+          : 4;
+      setDraft({ ...editable, maxActiveDeliveriesPerCourier: capacity });
+      setNumText({
+        taxRate: String(editable.taxRate ?? 0),
+        deliveryFee: String(Math.round(editable.deliveryFee ?? 0)),
+        deliveryRadiusKm: String(editable.deliveryRadiusKm ?? 0),
+        maxActive: String(capacity),
       });
     } else {
       setDraft(null);
@@ -264,6 +277,12 @@ export const ConfigView = () => {
     if (opSettings) {
       const { branchId, updatedAt, isDefault, ...editable } = opSettings;
       setDraft(editable);
+      setNumText({
+        taxRate: String(editable.taxRate ?? 0),
+        deliveryFee: String(Math.round(editable.deliveryFee ?? 0)),
+        deliveryRadiusKm: String(editable.deliveryRadiusKm ?? 0),
+        maxActive: String(editable.maxActiveDeliveriesPerCourier ?? 4),
+      });
     }
     setSavedMsg("");
     setSettingsSavedMsg("");
@@ -291,7 +310,18 @@ export const ConfigView = () => {
       } else {
         await updateMyBranch({ name, address, phone, status });
       }
-      if (draft) await saveOpSettings(draft);
+      if (draft) {
+        await saveOpSettings({
+          ...draft,
+          taxRate: Math.min(100, Math.max(0, Number(draft.taxRate) || 0)),
+          deliveryFee: Math.round(Math.max(0, Number(draft.deliveryFee) || 0)),
+          deliveryRadiusKm: Math.min(100, Math.max(0.01, Number(draft.deliveryRadiusKm) || 0.01)),
+          maxActiveDeliveriesPerCourier: Math.min(
+            20,
+            Math.max(1, Math.round(Number(draft.maxActiveDeliveriesPerCourier) || 1)),
+          ),
+        });
+      }
       setIsEditingBranch(false);
       setIsEditingOp(false);
       setSuccessOpen(true);
@@ -322,9 +352,7 @@ export const ConfigView = () => {
           <h1 className="text-3xl font-bold text-[#111827] tracking-tight">
             {t("configuration.title")}
           </h1>
-          <p className="text-gray-500 mt-1">
-            {t("configuration.description")}
-          </p>
+          <p className="text-gray-500 mt-1">{t("configuration.description")}</p>
         </div>
 
         <div className="flex flex-col md:flex-row gap-8 pt-2">
@@ -408,7 +436,9 @@ export const ConfigView = () => {
                         value={pName}
                         onChange={(e) => setPName(e.target.value)}
                         disabled={!profile || !isEditingProfile}
-                        placeholder={profile ? "" : translateCopy("Sin perfil de empleado")}
+                        placeholder={
+                          profile ? "" : translateCopy("Sin perfil de empleado")
+                        }
                         className={`${inputClass} ${!profile || !isEditingProfile ? "bg-gray-50 text-gray-500" : ""}`}
                       />
                     </div>
@@ -461,7 +491,9 @@ export const ConfigView = () => {
                   </div>
 
                   {profileError && (
-                    <p className="text-sm text-red-600">{translateCopy(profileError)}</p>
+                    <p className="text-sm text-red-600">
+                      {translateCopy(profileError)}
+                    </p>
                   )}
                   {profileSavedMsg && (
                     <p className="text-sm text-green-600 font-medium">
@@ -509,13 +541,16 @@ export const ConfigView = () => {
             {activeTab === "negocio" && (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 animate-fade-in sm:p-6 lg:p-8">
                 <h2 className="text-xl font-bold text-[#111827] mb-6">
-                  {isGerente ? translateCopy("Configuración por Sede") : translateCopy("Mi Sede")}
+                  {isGerente
+                    ? translateCopy("Configuración por Sede")
+                    : translateCopy("Mi Sede")}
                 </h2>
 
                 {isGerente && (
                   <div className="mb-6">
                     <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
-                       {translateCopy("Selecciona la sede a configurar")} </label>
+                      {translateCopy("Selecciona la sede a configurar")}{" "}
+                    </label>
                     <select
                       value={settingsBranchId}
                       onChange={(e) =>
@@ -525,7 +560,9 @@ export const ConfigView = () => {
                       }
                       className={inputClass}
                     >
-                      <option value="">{translateCopy("Selecciona una sede...")}</option>
+                      <option value="">
+                        {translateCopy("Selecciona una sede...")}
+                      </option>
                       {branches.map((b) => (
                         <option key={b.id} value={b.id}>
                           {b.name}
@@ -537,12 +574,18 @@ export const ConfigView = () => {
 
                 {isGerente && !branch ? (
                   <p className="text-sm text-gray-400 py-4">
-                     {translateCopy("Elige una sede arriba para ver y editar su configuración.")} </p>
+                    {translateCopy(
+                      "Elige una sede arriba para ver y editar su configuración.",
+                    )}{" "}
+                  </p>
                 ) : branchLoading ? (
                   <p className="text-sm text-gray-500">
-                     {translateCopy("Cargando datos de la sede...")} </p>
+                    {translateCopy("Cargando datos de la sede...")}{" "}
+                  </p>
                 ) : branchError ? (
-                  <p className="text-sm text-red-600">{translateCopy(branchError)}</p>
+                  <p className="text-sm text-red-600">
+                    {translateCopy(branchError)}
+                  </p>
                 ) : (
                   <form
                     className="space-y-6"
@@ -554,7 +597,8 @@ export const ConfigView = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
                         <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
-                           {translateCopy("Nombre de la Sede")} </label>
+                          {translateCopy("Nombre de la Sede")}{" "}
+                        </label>
                         <input
                           type="text"
                           value={name}
@@ -565,7 +609,8 @@ export const ConfigView = () => {
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
-                           {translateCopy("Teléfono")} </label>
+                          {translateCopy("Teléfono")}{" "}
+                        </label>
                         <input
                           type="text"
                           value={phone}
@@ -576,7 +621,8 @@ export const ConfigView = () => {
                       </div>
                       <div className="md:col-span-2">
                         <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
-                           {translateCopy("Dirección")} </label>
+                          {translateCopy("Dirección")}{" "}
+                        </label>
                         <input
                           type="text"
                           value={address}
@@ -590,11 +636,16 @@ export const ConfigView = () => {
                     <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
                       <div>
                         <h4 className="font-bold text-[#111827] text-sm">
-                           {translateCopy("Estado de la Sede")} </h4>
+                          {translateCopy("Estado de la Sede")}{" "}
+                        </h4>
                         <p className="text-xs text-gray-500 mt-1">
                           {isGerente
-                            ? translateCopy("Activa o inactiva dentro del sistema.")
-                            : translateCopy("Solo el Gerente puede activar o desactivar la sede.")}
+                            ? translateCopy(
+                                "Activa o inactiva dentro del sistema.",
+                              )
+                            : translateCopy(
+                                "Solo el Gerente puede activar o desactivar la sede.",
+                              )}
                         </p>
                       </div>
                       <label
@@ -611,7 +662,10 @@ export const ConfigView = () => {
                           onChange={(e) => setStatus(e.target.checked)}
                           className="branch-status-input sr-only"
                         />
-                        <span className="branch-status-track" aria-hidden="true" />
+                        <span
+                          className="branch-status-track"
+                          aria-hidden="true"
+                        />
                       </label>
                     </div>
                   </form>
@@ -627,9 +681,13 @@ export const ConfigView = () => {
                     >
                       <div>
                         <h3 className="text-lg font-bold text-[#111827] mb-1">
-                           {translateCopy("Ajustes Operativos")} </h3>
+                          {translateCopy("Ajustes Operativos")}{" "}
+                        </h3>
                         <p className="text-xs text-gray-500">
-                           {translateCopy("Horarios, impuestos y tarifas específicas de esta sede.")} </p>
+                          {translateCopy(
+                            "Horarios, impuestos y tarifas específicas de esta sede.",
+                          )}{" "}
+                        </p>
                       </div>
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
@@ -672,76 +730,183 @@ export const ConfigView = () => {
                                   ["openingTime", "Hora de apertura", "time"],
                                   ["closingTime", "Hora de cierre", "time"],
                                   ["taxRate", "Impoconsumo (%)", "number"],
-                                  ["deliveryFee", "Tarifa de domicilio", "number"],
-                                  ["deliveryRadiusKm", "Radio de entrega (km)", "number"],
+                                  [
+                                    "deliveryFee",
+                                    "Tarifa de domicilio",
+                                    "number",
+                                  ],
+                                  [
+                                    "deliveryRadiusKm",
+                                    "Radio de entrega (km)",
+                                    "number",
+                                  ],
                                 ] as const
-                              ).map(([field, label, type]) => (
-                                <div key={field}>
-                                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
-                                    {translateCopy(label)}
-                                  </label>
-                                  <input
-                                    type={type}
-                                    step={type === "number" ? "0.01" : undefined}
-                                    min={type === "number" ? 0 : undefined}
-                                    value={draft[field]}
-                                    disabled={!isEditingOp}
-                                    onChange={(e) =>
-                                      patch({
-                                        [field]:
-                                          type === "number"
-                                            ? Number(e.target.value)
-                                            : e.target.value,
-                                      } as Partial<UpdateBranchOperationalSettingsPayload>)
-                                    }
-                                    className={`${inputClass} ${!isEditingOp ? "bg-gray-50 text-gray-500" : ""}`}
-                                  />
-                                </div>
-                              ))}
+                              ).map(([field, label, type]) => {
+                                const rules = {
+                                  taxRate: { decimals: 2, max: 100 },
+                                  deliveryFee: { decimals: 0, max: 99999999 },
+                                  deliveryRadiusKm: { decimals: 2, max: 100 },
+                                } as const;
+                                const key = field as
+                                  | "taxRate"
+                                  | "deliveryFee"
+                                  | "deliveryRadiusKm";
+                                return (
+                                  <div key={field}>
+                                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                                      {translateCopy(label)}
+                                    </label>
+                                    {type === "time" ? (
+                                      <input
+                                        type="time"
+                                        value={draft[field]}
+                                        disabled={!isEditingOp}
+                                        onChange={(e) =>
+                                          patch({
+                                            [field]: e.target.value,
+                                          } as Partial<UpdateBranchOperationalSettingsPayload>)
+                                        }
+                                        className={`${inputClass} ${!isEditingOp ? "bg-gray-50 text-gray-500" : ""}`}
+                                      />
+                                    ) : (
+                                      <input
+                                        type="text"
+                                        inputMode={
+                                          rules[key].decimals
+                                            ? "decimal"
+                                            : "numeric"
+                                        }
+                                        value={numText[key]}
+                                        disabled={!isEditingOp}
+                                        onChange={(e) => {
+                                          const clean = sanitizeNumber(
+                                            e.target.value,
+                                            rules[key],
+                                          );
+                                          setNumText((p) => ({
+                                            ...p,
+                                            [key]: clean,
+                                          }));
+                                          patch({
+                                            [key]: Number(clean) || 0,
+                                          } as Partial<UpdateBranchOperationalSettingsPayload>);
+                                        }}
+                                        onBlur={() => {
+                                          const n = Math.min(
+                                            20,
+                                            Math.max(
+                                              1,
+                                              Math.round(
+                                                Number(numText.maxActive) || 1,
+                                              ),
+                                            ),
+                                          );
+                                          setNumText((p) => ({
+                                            ...p,
+                                            maxActive: String(n),
+                                          }));
+                                          patch({
+                                            maxActiveDeliveriesPerCourier: n,
+                                          });
+                                        }}
+                                        className={`${inputClass} ${!isEditingOp ? "bg-gray-50 text-gray-500" : ""}`}
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                             <p className="mt-3 text-xs text-gray-500">
-                               {translateCopy("Usa 8% para Impoconsumo. El impuesto se calcula sobre el subtotal de productos; el domicilio se suma aparte y no hace parte de esa base. Configura 0% solo si el contribuyente es persona natural, tuvo ingresos de esta actividad inferiores a 3.500 UVT el año anterior, tiene máximo un establecimiento y figura como no responsable del INC en el RUT; la app no verifica esas condiciones.")} </p>
+                              {translateCopy(
+                                "Usa 8% para Impoconsumo. El impuesto se calcula sobre el subtotal de productos; el domicilio se suma aparte y no hace parte de esa base. Configura 0% solo si el contribuyente es persona natural, tuvo ingresos de esta actividad inferiores a 3.500 UVT el año anterior, tiene máximo un establecimiento y figura como no responsable del INC en el RUT; la app no verifica esas condiciones.",
+                              )}{" "}
+                            </p>
                             <div className="delivery-assignment-card mt-5 rounded-2xl border p-4 md:flex md:items-center md:justify-between md:gap-6">
                               <div className="flex items-start gap-3">
-                                <span className="delivery-assignment-icon mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full" aria-hidden="true">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <span
+                                  className="delivery-assignment-icon mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+                                  aria-hidden="true"
+                                >
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    width="18"
+                                    height="18"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
                                     <circle cx="12" cy="12" r="10" />
                                     <path d="M12 16v-4M12 8h.01" />
                                   </svg>
                                 </span>
                                 <div>
                                   <h4 className="delivery-assignment-title text-sm font-bold">
-                                    {translateCopy("Asignación automática de domicilios")}
+                                    {translateCopy(
+                                      "Asignación automática de domicilios",
+                                    )}
                                   </h4>
                                   <p className="delivery-assignment-copy mt-1 text-xs leading-5">
-                                    {translateCopy("Con GPS reciente, asigna al repartidor disponible más cercano. Sin GPS reciente, prioriza al que lleva menos pedidos. Si todos alcanzan el máximo, el pedido espera hasta que se libere un cupo.")}
+                                    {translateCopy(
+                                      "Con GPS reciente, asigna al repartidor disponible más cercano. Sin GPS reciente, prioriza al que lleva menos pedidos. Si todos alcanzan el máximo, el pedido espera hasta que se libere un cupo.",
+                                    )}
                                   </p>
                                   <p className="delivery-assignment-muted mt-1 text-xs">
-                                    {translateCopy("Para calcular la cercanía, el repartidor debe permitir el acceso a la ubicación GPS en su dispositivo.")}
+                                    {translateCopy(
+                                      "Para calcular la cercanía, el repartidor debe permitir el acceso a la ubicación GPS en su dispositivo.",
+                                    )}
                                   </p>
                                 </div>
                               </div>
                               <div className="mt-4 w-full md:mt-0 md:max-w-[240px]">
                                 <label className="delivery-assignment-label mb-2 block text-[10px] font-bold uppercase tracking-wider">
-                                  {translateCopy("Máximo de pedidos activos por repartidor")}
+                                  {translateCopy(
+                                    "Máximo de pedidos activos por repartidor",
+                                  )}
                                 </label>
                                 <input
-                                  type="number"
-                                  min={1}
-                                  max={20}
-                                  step={1}
-                                  value={draft.maxActiveDeliveriesPerCourier ?? 4}
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={numText.maxActive}
                                   disabled={!isEditingOp}
-                                  onChange={(e) =>
+                                  onChange={(e) => {
+                                    const clean = sanitizeNumber(
+                                      e.target.value,
+                                      { decimals: 0, max: 20 },
+                                    );
+                                    setNumText((p) => ({
+                                      ...p,
+                                      maxActive: clean,
+                                    }));
                                     patch({
                                       maxActiveDeliveriesPerCourier:
-                                        e.target.value === "" ? 0 : Number(e.target.value),
-                                    })
-                                  }
+                                        Number(clean) || 0,
+                                    });
+                                  }}
+                                  onBlur={() => {
+                                    const n = Math.min(
+                                      20,
+                                      Math.max(
+                                        1,
+                                        Math.round(
+                                          Number(numText.maxActive) || 1,
+                                        ),
+                                      ),
+                                    );
+                                    setNumText((p) => ({
+                                      ...p,
+                                      maxActive: String(n),
+                                    }));
+                                    patch({ maxActiveDeliveriesPerCourier: n });
+                                  }}
                                   className={`${inputClass} delivery-assignment-input`}
                                 />
                                 <p className="delivery-assignment-muted mt-1 text-[11px]">
-                                  {translateCopy("Configura entre 1 y 20 pedidos simultáneos.")}
+                                  {translateCopy(
+                                    "Configura entre 1 y 20 pedidos simultáneos.",
+                                  )}
                                 </p>
                               </div>
                             </div>
@@ -761,7 +926,8 @@ export const ConfigView = () => {
                         disabled={saving || savingAllSettings}
                         className="bg-white border border-gray-200 hover:bg-gray-50 text-[#111827] font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
                       >
-                         {translateCopy("Cancelar")} </button>
+                        {translateCopy("Cancelar")}{" "}
+                      </button>
                     )}
                     <button
                       type="button"
@@ -769,7 +935,8 @@ export const ConfigView = () => {
                       disabled={isEditingBranch || saving || savingAllSettings}
                       className="bg-white border border-gray-200 hover:bg-gray-50 text-[#111827] font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                       {translateCopy("Editar")} </button>
+                      {translateCopy("Editar")}{" "}
+                    </button>
                     <button
                       type="button"
                       onClick={handleSaveAll}
@@ -788,14 +955,19 @@ export const ConfigView = () => {
             {activeTab === "carta" && (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 animate-fade-in sm:p-6 lg:p-8">
                 <h2 className="text-xl font-bold text-[#111827] mb-2">
-                   {translateCopy("Código QR de la Carta Digital")} </h2>
+                  {translateCopy("Código QR de la Carta Digital")}{" "}
+                </h2>
                 <p className="text-sm text-gray-500 mb-6">
-                   {translateCopy("Imprime este código y colócalo en cada mesa. Los clientes lo escanean con su celular para ver el menú del restaurante.")} </p>
+                  {translateCopy(
+                    "Imprime este código y colócalo en cada mesa. Los clientes lo escanean con su celular para ver el menú del restaurante.",
+                  )}{" "}
+                </p>
 
                 {isGerente && (
                   <div className="mb-2">
                     <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
-                       {translateCopy("Sede del QR")} </label>
+                      {translateCopy("Sede del QR")}{" "}
+                    </label>
                     <select
                       value={qrBranchId}
                       onChange={(e) =>
@@ -826,7 +998,12 @@ export const ConfigView = () => {
                         ref={qrRef}
                         className="rounded-2xl border-2 border-gray-100 bg-white p-3 shadow-sm sm:p-6"
                       >
-                        <QRCodeCanvas value={menuUrl} size={220} level="M" className="h-auto max-w-full" />
+                        <QRCodeCanvas
+                          value={menuUrl}
+                          size={220}
+                          level="M"
+                          className="h-auto max-w-full"
+                        />
                       </div>
 
                       <button
@@ -844,7 +1021,6 @@ export const ConfigView = () => {
                 </div>
               </div>
             )}
-
           </div>
         </div>
       </div>
@@ -874,15 +1050,20 @@ export const ConfigView = () => {
               </svg>
             </div>
             <h3 className="text-lg font-bold text-[#111827] mb-1">
-               {translateCopy("¡Cambios guardados!")} </h3>
+              {translateCopy("¡Cambios guardados!")}{" "}
+            </h3>
             <p className="text-sm text-gray-500 mb-6">
-               {translateCopy("La sede y sus ajustes operativos se actualizaron correctamente.")} </p>
+              {translateCopy(
+                "La sede y sus ajustes operativos se actualizaron correctamente.",
+              )}{" "}
+            </p>
             <button
               type="button"
               onClick={() => setSuccessOpen(false)}
               className="bg-[#111827] hover:bg-gray-800 text-white font-bold py-2.5 px-8 rounded-xl text-sm transition-colors shadow-sm"
             >
-               {translateCopy("Aceptar")} </button>
+              {translateCopy("Aceptar")}{" "}
+            </button>
           </div>
         </div>
       )}

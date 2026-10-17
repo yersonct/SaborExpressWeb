@@ -1,5 +1,6 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
 import { translateCopy, getCurrentLocale } from "@/config/copy-translations";
 import { formatMoney } from "@/lib/format-money";
 import { useState, useMemo, useEffect } from "react";
@@ -31,7 +32,7 @@ const STATUS_LABELS: Record<TableStatus, string> = {
 
 const FALLBACK_THEME = {
   accent: "bg-gray-300",
-  badge: "bg-gray-100 text-gray-500 border-gray-200",
+  badge: "tbl-status-fallback",
   dot: "bg-gray-400",
 };
 
@@ -41,12 +42,12 @@ const STATUS_THEME: Record<
 > = {
   [TableStatus.Available]: {
     accent: "bg-emerald-500",
-    badge: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    badge: "tbl-status-available",
     dot: "bg-emerald-500",
   },
   [TableStatus.Occupied]: {
     accent: "bg-[#EA1D2C]",
-    badge: "bg-red-50 text-red-700 border-red-200",
+    badge: "tbl-status-occupied",
     dot: "bg-[#EA1D2C]",
   },
 };
@@ -84,14 +85,15 @@ const { history: statusHistory, loading: loadingHistory } = useOrderStatusHistor
     [OrderStatus.Cancelled]: "Cancelado",
   };
 
-  const [branchId, setBranchId] = useState<number | null>(null);
+  const [branchId, setBranchId, branchReady] = useRememberedUiState<number | null>("tables", "branch", null);
 
   // Al cargar las sedes, se elige la primera automáticamente
   useEffect(() => {
-    if (branchId === null && branches.length > 0) {
+    if (branchReady && branches.length > 0 &&
+      (branchId === null || !branches.some((branch) => branch.id === branchId))) {
       setBranchId(branches[0].id);
     }
-  }, [branches, branchId]);
+  }, [branches, branchId, branchReady]);
 const {
   tables,
   loading,
@@ -129,7 +131,7 @@ const activeOrderByTableId = useMemo(() => {
   const [number, setNumber] = useState("");
   const [saving, setSaving] = useState(false);
   const [notify, setNotify] = useState<NotifyState>(null);
-  const [statusFilter, setStatusFilter] = useState<TableStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useRememberedUiState<TableStatus | "all">("tables", "status", "all");
 
   const openCreate = () => {
     setEditingTable(null);
@@ -247,7 +249,7 @@ const activeOrderByTableId = useMemo(() => {
       <div className="space-y-6 pb-10">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-extrabold text-[#111827] tracking-tight">
+            <h1 className="text-3xl font-extrabold app-page-title tracking-tight">
               {t("pageTitles.tables")}
             </h1>
             <p className="text-gray-500 mt-1">
@@ -287,13 +289,13 @@ const activeOrderByTableId = useMemo(() => {
               onClick={() => handleStatusFilter("all")}
               className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all border ${
                 statusFilter === "all"
-                  ? "bg-[#111827] text-white border-[#111827] shadow-sm"
-                  : "bg-white text-gray-500 border-gray-100 hover:border-gray-200 shadow-sm"
+                  ? "tbl-filter-active"
+                  : "tbl-filter"
               }`}
             >
                {translateCopy("Todas")} <span
                 className={
-                  statusFilter === "all" ? "text-gray-100" : "text-gray-400 "
+                  "tbl-filter-count"
                 }
               >
                 {tables.length}
@@ -308,8 +310,8 @@ const activeOrderByTableId = useMemo(() => {
                   onClick={() => handleStatusFilter(status)}
                   className={`flex items-center gap-2.5 rounded-xl px-4 py-2.5 text-sm font-bold border transition-all shadow-sm ${
                     isActive
-                      ? "bg-[#111827] text-white border-[#111827]"
-                      : "bg-white text-gray-500 border-gray-100 hover:border-gray-200"
+                      ? "tbl-filter-active"
+                      : "tbl-filter"
                   }`}
                 >
                   <span
@@ -317,7 +319,7 @@ const activeOrderByTableId = useMemo(() => {
                   />
                   {translateCopy(STATUS_LABELS[status])}
                   <span
-                    className={isActive ? "text-gray-100" : "text-gray-400"}
+                    className="tbl-filter-count"
                   >
                     {count}
                   </span>
@@ -377,7 +379,7 @@ const activeOrderByTableId = useMemo(() => {
                   <div className="p-5 flex flex-col gap-3">
                     <div className="flex justify-between items-start">
                       <div>
-                        <span className="text-2xl font-black text-[#111827]">
+                        <span className="text-2xl font-black tbl-card-title">
                            {translateCopy("Mesa")} {table.number}
                         </span>
                         {!branchId && table.branchName && (
@@ -388,7 +390,7 @@ const activeOrderByTableId = useMemo(() => {
                       </div>
                       <button
                         onClick={() => setConfirmDelete(table)}
-                        className="text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                        className="tbl-delete-btn transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                         title={translateCopy("Eliminar mesa")}
                       >
                         ✕
@@ -399,12 +401,12 @@ const activeOrderByTableId = useMemo(() => {
                       <button
                         type="button"
                         onClick={() => setSelectedOrderId(activeOrder.id)}
-                        className="flex items-center justify-between bg-orange-50 border border-orange-100 rounded-lg px-3 py-2 hover:bg-orange-100 transition-colors text-left"
+                        className="tbl-order-badge flex items-center justify-between border rounded-lg px-3 py-2 transition-colors text-left"
                       >
-                        <span className="text-[11px] font-bold text-orange-700">
+                        <span className="text-[11px] font-bold">
                           {translateCopy("Pedido activo")}
                         </span>
-                        <span className="text-xs font-black text-orange-700">
+                        <span className="text-xs font-black">
                           {formatMoney(activeOrder.total ?? 0)}
                         </span>
                       </button>
@@ -419,7 +421,7 @@ const activeOrderByTableId = useMemo(() => {
 
                     <button
                       onClick={() => openEdit(table)}
-                      className="text-xs font-bold text-gray-400 hover:text-[#EA1D2C] text-left transition-colors"
+                      className="tbl-edit-link text-xs font-bold text-left"
                     >
                        {translateCopy("Editar número")} </button>
 

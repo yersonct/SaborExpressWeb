@@ -1,7 +1,7 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
 import { translateCopy } from "@/config/copy-translations";
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ProductsView } from "./products-view";
 import { CategoriesView } from "../../Categories/views/categories-view";
@@ -10,7 +10,7 @@ type Tab = "productos" | "categorias";
 
 export const InventoryView = () => {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<Tab>("productos");
+  const [activeTab, setActiveTab] = useRememberedUiState<Tab>("inventory", "activeTab", "productos");
 
   return (
     <>

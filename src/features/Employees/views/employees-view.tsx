@@ -1,5 +1,6 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
 import { translateCopy } from "@/config/copy-translations";
 import { formatMoney } from "@/lib/format-money";
 import { useState, useEffect } from "react";
@@ -56,7 +57,7 @@ const getDisplayRoles = (emp: Employee): string[] => {
 
 export const EmployeesView = () => {
   const { t } = useTranslation();
-  const [estado, setEstado] = useState<EmployeeStatusFilter>("activo");
+  const [estado, setEstado] = useRememberedUiState<EmployeeStatusFilter>("employees", "status", "activo");
   const {
     employees,
     loading,
@@ -129,7 +130,7 @@ export const EmployeesView = () => {
   );
   const [confirmDeleteEmployee, setConfirmDeleteEmployee] =
     useState<Employee | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useRememberedUiState<number>("employees", "page", 1);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
@@ -157,15 +158,23 @@ export const EmployeesView = () => {
 
   // El Gerente sin turno hoy (el General sembrado) no se muestra en Personal.
   // Si un Gerente tiene turno hoy (asignado por otro Gerente), sí aparece.
-  const visibleEmployees = employees.filter(
-    (e) =>
-      !(
-        e.roleNames.some((r) => r.toUpperCase() === "GERENTE") &&
-        e.todayShiftState === "None"
-      ),
-  );
+  const visibleEmployees = employees.filter((e) => {
+    // Defensa adicional: nunca mostrar un "Activo" cuando se eligio "Retirados".
+    const status = e.status.trim().toLowerCase();
+    const matchesStatus =
+      estado === "todos" ||
+      (estado === "activo" && status === "activo") ||
+      (estado === "retirado" && status === "retirado");
+    const isUnassignedManager =
+      e.roleNames.some((r) => r.toUpperCase() === "GERENTE") &&
+      e.todayShiftState === "None";
+    return matchesStatus && !isUnassignedManager;
+  });
 
-  const totalPages = Math.ceil(visibleEmployees.length / ITEMS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(visibleEmployees.length / ITEMS_PER_PAGE));
+  useEffect(() => {
+    if (!loading && currentPage > totalPages) setCurrentPage(totalPages);
+  }, [loading, currentPage, totalPages]);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const paginatedEmployees = visibleEmployees.slice(
     startIndex,

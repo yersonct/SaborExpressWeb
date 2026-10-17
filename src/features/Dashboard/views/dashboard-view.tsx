@@ -1,7 +1,9 @@
 "use client";
+
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
 import { translateCopy } from "@/config/copy-translations";
 import { formatMoney } from "@/lib/format-money";
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDashboardStats } from '@/features/Dashboard/hooks/use-dashboard-stats';
 import { useAuth } from '@/features/auth/hooks/use-auth';
@@ -11,7 +13,7 @@ import type { DateRangeOption } from '@/features/Payments/utils/date-ranges';
 
 export const DashboardView = () => {
   const { t } = useTranslation();
-  const [filtroActivo, setFiltroActivo] = useState<DateRangeOption>('hoy');
+  const [filtroActivo, setFiltroActivo] = useRememberedUiState<DateRangeOption>('dashboard', 'period', 'hoy');
 
   const { session, isHydrated } = useAuth();
   const isGerente = isHydrated && !!session?.roles.includes("GERENTE");
@@ -23,7 +25,7 @@ export const DashboardView = () => {
   // Administrador: su sede fija, sin selector
   const { branch: myBranch, loading: loadingMyBranch } = useMyBranch(isAdministrador);
 
-  const [selectedBranchId, setSelectedBranchId] = useState<number | undefined>(undefined);
+  const [selectedBranchId, setSelectedBranchId] = useRememberedUiState<number | undefined>("dashboard", "branch", undefined);
 
   // En cuanto sabemos cuál es la sede del Administrador, la dejamos fija
   useEffect(() => {

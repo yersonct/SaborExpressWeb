@@ -26,7 +26,11 @@ export const BranchEmployeesModal = ({
   return (
     <Dialog
       isOpen={!!branch}
-      title={branch ? `${translateCopy("Empleados de")} ${branch.name}` : translateCopy("Empleados")}
+      title={
+        branch
+          ? `${translateCopy("Empleados de")} ${branch.name}`
+          : translateCopy("Empleados")
+      }
       subtitle={
         branch
           ? `${branchEmployees.length} ${translateCopy(branchEmployees.length === 1 ? "empleado activo" : "empleados activos")}`
@@ -45,7 +49,10 @@ export const BranchEmployeesModal = ({
         </div>
       ) : branchEmployees.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-8">
-           {translateCopy("Esta sede aún no tiene empleados activos asignados.")} </p>
+          {translateCopy(
+            "Esta sede aún no tiene empleados activos asignados.",
+          )}{" "}
+        </p>
       ) : (
         <div className="space-y-2 max-h-96 overflow-y-auto">
           {branchEmployees.map((emp: any) => (
@@ -62,9 +69,9 @@ export const BranchEmployeesModal = ({
                     {emp.name} {emp.lastName ?? ""}
                   </p>
                   <p className="text-xs text-gray-500">
-                    {emp.roleNames?.length > 0
-                      ? emp.roleNames.map(translateCopy).join(", ")
-                      : translateCopy("Sin rol asignado")}
+                    {emp.todayRoleNames?.length > 0
+                      ? emp.todayRoleNames.map(translateCopy).join(", ")
+                      : translateCopy("Sin turno vigente hoy")}
                   </p>
                 </div>
               </div>

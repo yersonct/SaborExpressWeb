@@ -1,5 +1,6 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
 import { translateCopy, getCurrentLocale } from "@/config/copy-translations";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -48,18 +49,20 @@ export const ReviewsView = () => {
   const { branches } = useBranches(isHydrated && isGerente);
   const { branch: myBranch } = useMyBranch(isHydrated && isAdmin);
 
-  const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
+  const [selectedBranchId, setSelectedBranchId, branchReady] = useRememberedUiState<number | null>("reviews", "branch", null);
   const [confirmDelete, setConfirmDelete] = useState<Review | null>(null);
   const [selected, setSelected] = useState<CombinedReview | null>(null);
   const [notify, setNotify] = useState<NotifyState>(null);
 
   useEffect(() => {
+    if (!branchReady) return;
     if (isAdmin && myBranch) {
-      setSelectedBranchId(myBranch.id);
-    } else if (isGerente && branches.length > 0 && selectedBranchId == null) {
+      if (selectedBranchId !== myBranch.id) setSelectedBranchId(myBranch.id);
+    } else if (isGerente && branches.length > 0 &&
+      (selectedBranchId == null || !branches.some((branch) => branch.id === selectedBranchId))) {
       setSelectedBranchId(branches[0].id);
     }
-  }, [isAdmin, myBranch, isGerente, branches, selectedBranchId]);
+  }, [branchReady, isAdmin, myBranch, isGerente, branches, selectedBranchId]);
 
   const { combined, stats, loading, error, deletingId, removeReview } =
     useBranchReviews(selectedBranchId);
