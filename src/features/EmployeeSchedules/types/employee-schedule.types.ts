@@ -2,8 +2,10 @@ export interface EmployeeSchedule {
   id: number;
   employeeId: number;
   employeeName: string;
+  employeeBranchId: number | null;
   roleId: number;
   roleName: string;
+  isOwnLockedShift: boolean;
   branchId: number;
   branchName: string;
   shiftDate: string; // "YYYY-MM-DD"

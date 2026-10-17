@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "@/features/auth/hooks/use-auth";
+import { useAdminDataChanged } from "@/features/Dashboard/hooks/use-admin-data-changed";
 import {
   employeeMeService,
   type MyProfile,
@@ -25,26 +27,41 @@ function tokenHasEmployeeId(): boolean {
 }
 
 export function useMyProfile(enabled: boolean) {
+  const { session } = useAuth();
+  const userId = session?.userId ?? null;
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!enabled || !tokenHasEmployeeId()) {
+      await Promise.resolve();
       setLoading(false);
       return;
     }
-    employeeMeService
-      .get()
-      .then(setProfile)
-      .catch((err) =>
-        setError(
-          err instanceof Error ? err.message : "No se pudo cargar tu perfil",
-        ),
-      )
-      .finally(() => setLoading(false));
+    try {
+      setProfile(await employeeMeService.get());
+      setError(null);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudo cargar tu perfil",
+      );
+    } finally {
+      setLoading(false);
+    }
   }, [enabled]);
+
+  useEffect(() => {
+    queueMicrotask(() => void load());
+  }, [load]);
+
+  useAdminDataChanged(
+    userId,
+    ["Employees", "EmployeeSchedules"],
+    () => void load(),
+    () => void load(),
+  );
 
   const save = useCallback(
     async (payload: UpdateMyProfilePayload) => {
@@ -52,9 +69,6 @@ export function useMyProfile(enabled: boolean) {
       setError(null);
       try {
         const updated = await employeeMeService.update({
-          // vehicle/plate se reenvían tal cual para no borrarlos al guardar
-          vehicle: profile?.vehicle ?? undefined,
-          plate: profile?.plate ?? undefined,
           ...payload,
         });
         setProfile(updated);
