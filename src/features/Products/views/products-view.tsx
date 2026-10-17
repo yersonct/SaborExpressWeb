@@ -1,5 +1,6 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
 import { translateCopy } from "@/config/copy-translations";
 import { formatMoney } from "@/lib/format-money";
 import { useState, useEffect } from "react";
@@ -84,7 +85,7 @@ export const ProductsView = () => {
   const [formErrors, setFormErrors] = useState<ProductFormErrors>({});
   const [formStep, setFormStep] = useState(1);
   const [stepError, setStepError] = useState("");
-  const [filterCategoryId, setFilterCategoryId] = useState<string>("");
+  const [filterCategoryId, setFilterCategoryId] = useRememberedUiState<string>("products", "category", "");
 
   // Solo categorías activas (se usa en el formulario: selector, resumen, y mensaje de aviso)
   const activeCategories = categories.filter((c) => c.status);

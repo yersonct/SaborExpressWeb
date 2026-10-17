@@ -1,5 +1,6 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
 import { translateCopy, getCurrentLocale } from "@/config/copy-translations";
 import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -162,8 +163,8 @@ export const OrdersView = () => {
   const isGerente = session?.roles?.includes("GERENTE") ?? false;
   const { branches } = useBranches(isHydrated && isGerente);
 
-  const [branchFilter, setBranchFilter] = useState<string>("");
-  const [showCancelled, setShowCancelled] = useState(false);
+  const [branchFilter, setBranchFilter] = useRememberedUiState<string>("orders", "branch", "");
+  const [showCancelled, setShowCancelled] = useRememberedUiState<boolean>("orders", "showCancelled", false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [confirmCancel, setConfirmCancel] = useState<Order | null>(null);
   const [cancelReason, setCancelReason] = useState("");

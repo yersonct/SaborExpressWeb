@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useAdminDataChanged } from "@/features/Dashboard/hooks/use-admin-data-changed";
 import { useRealtimeConnectionStatus } from "@/features/Dashboard/hooks/use-realtime-events";
@@ -19,18 +19,24 @@ export function useEmployees(estado: EmployeeStatusFilter = "activo") {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Evita que una respuesta antigua reemplace la lista del filtro actual.
+  const latestRequestId = useRef(0);
 
   const fetchEmployees = useCallback(async (silent = false) => {
+    const requestId = ++latestRequestId.current;
     if (!silent) {
       setLoading(true);
       setError("");
     }
     try {
       const data = await employeeService.getAll(estado);
+      // Ignorar respuestas de peticiones iniciadas para un filtro anterior.
+      if (requestId !== latestRequestId.current) return;
       const sorted = [...data].sort((a, b) => b.id - a.id);
       setEmployees(sorted);
       setError("");
     } catch (err) {
+      if (requestId !== latestRequestId.current) return;
       if (!silent) {
         setError(
           err instanceof Error
@@ -39,14 +45,17 @@ export function useEmployees(estado: EmployeeStatusFilter = "activo") {
         );
       }
     } finally {
-      if (!silent) setLoading(false);
+      if (requestId === latestRequestId.current) setLoading(false);
     }
   }, [estado]);
 
   useEffect(() => {
-    fetchEmployees();
+    void fetchEmployees();
+    return () => {
+      // Invalida peticiones en vuelo al cambiar el filtro o salir de Equipo.
+      latestRequestId.current += 1;
+    };
   }, [fetchEmployees]);
-
   const refreshAfterChange = useCallback(() => {
     void fetchEmployees(true);
   }, [fetchEmployees]);

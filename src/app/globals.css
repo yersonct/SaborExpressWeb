@@ -710,3 +710,125 @@ html[data-theme="dark"] .delivery-assignment-input:disabled {
     transform: scale(1);
   }
 }
+
+/* === DARK-MODE-CONTROLS-FIX START === */
+
+/* 1. Perillas redondas blancas de los interruptores (se deslizan con translate-x).
+      Antes .bg-white las pintaba del color del fondo y desaparecian. */
+html[data-theme="dark"] [class*="bg-white"][class*="rounded-full"][class*="translate-x-"] {
+  background-color: #ffffff !important;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.55);
+}
+
+/* 2a. Pista APAGADA del interruptor "Exigir hoja de vida" (boton) */
+html[data-theme="dark"] button[class*="w-11"][class*="rounded-full"].bg-gray-200 {
+  background-color: #64748b !important;
+}
+
+/* 2b. Pista de los interruptores con input .peer (Sede activa, Mi sede) */
+html[data-theme="dark"] .peer ~ .bg-gray-200.rounded-full {
+  background-color: #64748b !important;
+}
+html[data-theme="dark"] .peer:checked ~ .bg-gray-200.rounded-full {
+  background-color: #22c55e !important;
+}
+
+/* 3. Avatares / circulos de pasos con fondo gris: mismo color que la tarjeta */
+html[data-theme="dark"] div.bg-gray-200.rounded-full,
+html[data-theme="dark"] div.bg-gray-100.rounded-full {
+  background-color: #334155 !important;
+}
+
+/* 3b. Lineas conectoras de los pasos y lineas de tiempo */
+html[data-theme="dark"] div.bg-gray-200:not(.rounded-full) {
+  background-color: #475569 !important;
+}
+
+/* 4. Botones grises de modales (Atras, Descargar, etc.) que se perdian */
+html[data-theme="dark"] button.bg-gray-100:not([class*="w-11"]):not(:disabled):not(:hover),
+html[data-theme="dark"] button.bg-gray-200:not([class*="w-11"]):not(:disabled):not(:hover) {
+  background-color: #334155 !important;
+  border-color: #475569 !important;
+  color: #f1f5f9 !important;
+}
+
+/* 5. Borde en los modales oscuros para separarlos del fondo */
+html[data-theme="dark"] .fixed.inset-0 > .rounded-3xl.bg-white {
+  border: 1px solid #334155;
+}
+
+/* 6. Boton "Elegir archivo" de los input file en oscuro */
+html[data-theme="dark"] input[type="file"]::file-selector-button {
+  background-color: var(--brand-primary);
+  color: #fff;
+}
+
+/* === DARK-MODE-CONTROLS-FIX END === */
+
+/* === TABLES-STYLES START === */
+
+/* Titulos */
+.app-page-title { color: #111827; }
+html[data-theme="dark"] .app-page-title { color: #f8fafc; }
+
+.tbl-card-title { color: #111827; }
+html[data-theme="dark"] .tbl-card-title { color: #f8fafc; }
+
+/* Filtros (Todas / Disponible / Ocupada) */
+.tbl-filter {
+  background-color: #fff;
+  border-color: #e2e8f0;
+  color: #475569;
+}
+.tbl-filter:hover { border-color: #cbd5e1; color: #111827; }
+.tbl-filter-count { color: #64748b; }
+
+.tbl-filter-active {
+  background-color: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: #fff;
+  box-shadow: 0 4px 12px rgb(234 29 44 / 0.22);
+}
+.tbl-filter-active:hover {
+  background-color: var(--brand-primary-hover);
+  border-color: var(--brand-primary-hover);
+}
+.tbl-filter-active .tbl-filter-count { color: rgb(255 255 255 / 0.85); }
+
+html[data-theme="dark"] .tbl-filter {
+  background-color: #172033;
+  border-color: #334155;
+  color: #cbd5e1;
+}
+html[data-theme="dark"] .tbl-filter:hover { border-color: #475569; color: #f8fafc; }
+html[data-theme="dark"] .tbl-filter-count { color: #94a3b8; }
+html[data-theme="dark"] .tbl-filter-active .tbl-filter-count { color: rgb(255 255 255 / 0.85); }
+
+/* Badges de estado de la mesa */
+.tbl-status-available { background-color: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.tbl-status-occupied  { background-color: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+.tbl-status-fallback  { background-color: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+
+html[data-theme="dark"] .tbl-status-available { background-color: #12352e; color: #6ee7b7; border-color: #1f6f5a; }
+html[data-theme="dark"] .tbl-status-occupied  { background-color: #3b1d28; color: #fca5a5; border-color: #7f3544; }
+html[data-theme="dark"] .tbl-status-fallback  { background-color: #293548; color: #cbd5e1; border-color: #475569; }
+
+/* Badge "Pedido activo" */
+.tbl-order-badge { background-color: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+.tbl-order-badge:hover { background-color: #ffedd5; }
+html[data-theme="dark"] .tbl-order-badge { background-color: #3b2b1a; color: #fcd34d; border-color: #8a5b2b; }
+html[data-theme="dark"] .tbl-order-badge:hover { background-color: #4a3520; }
+
+/* "Editar numero" */
+.tbl-edit-link { color: #64748b; transition: color 160ms ease; }
+.tbl-edit-link:hover { color: var(--brand-primary); }
+html[data-theme="dark"] .tbl-edit-link { color: #cbd5e1; }
+html[data-theme="dark"] .tbl-edit-link:hover { color: #fca5a5; }
+
+/* Boton eliminar (X) */
+.tbl-delete-btn { color: #94a3b8; }
+.tbl-delete-btn:hover { color: #dc2626; }
+html[data-theme="dark"] .tbl-delete-btn { color: #94a3b8; }
+html[data-theme="dark"] .tbl-delete-btn:hover { color: #fca5a5; }
+
+/* === TABLES-STYLES END === */

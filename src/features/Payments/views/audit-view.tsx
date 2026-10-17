@@ -1,5 +1,6 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
 import { translateCopy, getCurrentLocale } from "@/config/copy-translations";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -59,14 +60,14 @@ export const AuditView = () => {
   const { branch: myBranch, loading: loadingMyBranch } =
     useMyBranch(isAdministrador);
 
-  const [selectedBranchId, setSelectedBranchId] = useState<number | undefined>(
-    undefined,
+  const [selectedBranchId, setSelectedBranchId] = useRememberedUiState<number | undefined>(
+    "payments", "branch", undefined,
   );
   const effectiveBranchId = isAdministrador ? myBranch?.id : selectedBranchId;
 
   // Rango de fechas: el Administrador siempre está fijo en "hoy".
   // El Gerente puede elegir; el valor solo se recalcula cuando cambia la opción, nunca en cada render.
-  const [dateOption, setDateOption] = useState<DateRangeOption>("hoy");
+  const [dateOption, setDateOption] = useRememberedUiState<DateRangeOption>("payments", "period", "hoy");
   const [colombiaTodayKey, setColombiaTodayKey] = useState(
     () => getColombiaDayKey() ?? "",
   );
@@ -83,8 +84,8 @@ export const AuditView = () => {
   );
 
   // Filtro por método de pago (disponible para ambos roles)
-  const [methodFilter, setMethodFilter] = useState<PaymentMethod | "all">(
-    "all",
+  const [methodFilter, setMethodFilter] = useRememberedUiState<PaymentMethod | "all">(
+    "payments", "method", "all",
   );
 
   const paymentsEnabled = isGerente || (isAdministrador && !!myBranch);

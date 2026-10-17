@@ -1,5 +1,6 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
 import { translateCopy } from "@/config/copy-translations";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -52,18 +53,20 @@ export const DeliveriesView = () => {
   const { branches } = useBranches(isHydrated && isGerente);
   const { branch: myBranch } = useMyBranch(isHydrated && isAdmin);
 
-  const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
+  const [selectedBranchId, setSelectedBranchId, branchReady] = useRememberedUiState<number | null>("deliveries", "branch", null);
   const [notify, setNotify] = useState<NotifyState>(null);
-  const [statusFilter, setStatusFilter] = useState<DeliveryStatus | "All">("All");
-  const [page, setPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useRememberedUiState<DeliveryStatus | "All">("deliveries", "status", "All");
+  const [page, setPage] = useRememberedUiState<number>("deliveries", "page", 1);
 
   useEffect(() => {
+    if (!branchReady) return;
     if (isAdmin && myBranch) {
-      setSelectedBranchId(myBranch.id);
-    } else if (isGerente && branches.length > 0 && selectedBranchId == null) {
+      if (selectedBranchId !== myBranch.id) setSelectedBranchId(myBranch.id);
+    } else if (isGerente && branches.length > 0 &&
+      (selectedBranchId == null || !branches.some((branch) => branch.id === selectedBranchId))) {
       setSelectedBranchId(branches[0].id);
     }
-  }, [isAdmin, myBranch, isGerente, branches, selectedBranchId]);
+  }, [branchReady, isAdmin, myBranch, isGerente, branches, selectedBranchId]);
 
   const {
     deliveries,

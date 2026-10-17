@@ -1,7 +1,8 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
 import { translateCopy } from "@/config/copy-translations";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { NotificationModal } from "@/components/ui/modal";
@@ -52,7 +53,7 @@ export const CategoriesView = () => {
   const [translations, setTranslations] = useState(EMPTY_TRANSLATIONS);
   const [status, setStatus] = useState(true);
   const [formErrors, setFormErrors] = useState<CategoryFormErrors>({});
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useRememberedUiState<number>("categories", "page", 1);
 
   const openCreate = () => {
     setEditingCategory(null);
@@ -139,7 +140,10 @@ export const CategoriesView = () => {
     }
   };
 
-const totalPages = Math.ceil(categories.length / ITEMS_PER_PAGE);
+const totalPages = Math.max(1, Math.ceil(categories.length / ITEMS_PER_PAGE));
+useEffect(() => {
+  if (!loading && currentPage > totalPages) setCurrentPage(totalPages);
+}, [loading, currentPage, totalPages]);
 const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
 const paginatedCategories = categories.slice(
   startIndex,
