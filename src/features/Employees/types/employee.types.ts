@@ -9,6 +9,9 @@ export interface Employee {
   address: string | null;
   photo: string | null;
   roleNames: string[];
+  todayRoleNames: string[]; // rol del turno de hoy
+  todayBranchName: string | null; // sede del turno de hoy
+  todayShiftState: "Active" | "Upcoming" | "Ended" | "None"; // estado del turno de hoy
   branchId: number | null;
   status: string; // "Activo" | "Inactivo"
   basePay: number;

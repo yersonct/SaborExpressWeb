@@ -1,11 +1,18 @@
 "use client";
 
+import { translateCopy } from "@/config/copy-translations";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { NotificationModal } from "@/components/ui/modal";
 import { useMyBranch } from "../hooks/use-my-branch";
 import { useAuth } from "@/features/auth/hooks/use-auth";
-import { BranchEmployeesModal } from "../components/branch-employees-modal";
+import { BranchEmployeesModal } from "../components/branch-employees-modal"
+import {
+  validateBranchForm,
+  hasBranchFormErrors,
+  type BranchFormErrors,
+} from "../utils/validate-branch";;
 
 
 
@@ -18,6 +25,7 @@ const labelClass =
   "block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2";
 
 export const MyBranchView = () => {
+  const { t } = useTranslation();
   const { session } = useAuth();
   const isAdministrador = session?.roles.includes("ADMINISTRADOR");
   const isGerente = session?.roles.includes("GERENTE");
@@ -35,6 +43,7 @@ export const MyBranchView = () => {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [status, setStatus] = useState(true);
+    const [formErrors, setFormErrors] = useState<BranchFormErrors>({});
 
   const openEdit = () => {
     if (!branch) return;
@@ -42,19 +51,25 @@ export const MyBranchView = () => {
     setAddress(branch.address ?? "");
     setPhone(branch.phone ?? "");
     setStatus(branch.status);
+    setFormErrors({});
     setIsFormOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const errors = validateBranchForm({ name, address, phone });
+    setFormErrors(errors);
+    if (hasBranchFormErrors(errors)) return;
+
     try {
       await updateMyBranch({ name, address, phone, status });
-      setNotify({ message: "Sede actualizada correctamente", type: "success" });
+      setNotify({ message: translateCopy("Sede actualizada correctamente"), type: "success" });
       setIsFormOpen(false);
     } catch (err) {
       setNotify({
         message:
-          err instanceof Error ? err.message : "No se pudo guardar la sede",
+          err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo guardar la sede"),
         type: "error",
       });
     }
@@ -65,31 +80,27 @@ export const MyBranchView = () => {
       <div className="max-w-2xl mx-auto space-y-6 pb-10">
         <div>
           <h1 className="text-3xl font-extrabold text-[#111827] tracking-tight">
-            Mi Sede
+            {t("pageTitles.myBranch")}
           </h1>
           <p className="text-gray-500 mt-1">
-            Información de la sede a la que perteneces.
-          </p>
+             {translateCopy("Información de la sede a la que perteneces.")} </p>
         </div>
 
         {isGerente ? (
-          <div className="bg-white rounded-xl border border-gray-200 p-16 text-center">
+          <div className="bg-white rounded-xl border border-gray-200 p-6 text-center sm:p-16">
             <p className="text-gray-400 font-medium">
-              Como Gerente administras todas las sedes de la red. Ve a la
-              sección "Sedes" para verlas y gestionarlas todas.
-            </p>
+               {translateCopy("Como Gerente administras todas las sedes de la red. Ve a la sección \"Sedes\" para verlas y gestionarlas todas.")} </p>
           </div>
         ) : loading ? (
           <div className="h-56 rounded-xl bg-gray-100 animate-pulse" />
         ) : error ? (
           <div className="bg-red-50 border border-red-100 rounded-2xl p-6 text-sm text-red-600">
-            {error}
+            {translateCopy(error)}
           </div>
         ) : !branch ? (
-          <div className="bg-white rounded-xl border border-gray-200 p-16 text-center">
+          <div className="bg-white rounded-xl border border-gray-200 p-6 text-center sm:p-16">
             <p className="text-gray-400 font-medium">
-              No tienes una sede asignada todavía.
-            </p>
+               {translateCopy("No tienes una sede asignada todavía.")} </p>
           </div>
         ) : (
           <div className="border border-gray-200 rounded-xl bg-white p-6">
@@ -103,7 +114,7 @@ export const MyBranchView = () => {
                     {branch.name}
                   </h3>
                   <p className="text-xs text-gray-400">
-                    {branch.address || "Sin dirección"}
+                    {branch.address || translateCopy("Sin dirección")}
                   </p>
                 </div>
               </div>
@@ -115,15 +126,15 @@ export const MyBranchView = () => {
                     : "bg-gray-50 text-gray-400"
                 }`}
               >
-                {branch.status ? "Activa" : "Inactiva"}
+                {translateCopy(branch.status ? "Activa" : "Inactiva")}
               </span>
             </div>
 
             <div className="flex items-center justify-between text-xs text-gray-500 border-t border-gray-100 pt-3 mb-4">
-              <span>{branch.phone || "Sin teléfono"}</span>
+              <span>{branch.phone || translateCopy("Sin teléfono")}</span>
               <span>
                 {branch.employeeCount}{" "}
-                {branch.employeeCount === 1 ? "empleado" : "empleados"}
+                {branch.employeeCount === 1 ? translateCopy("empleado") : translateCopy("empleados")}
               </span>
             </div>
             <div className="flex gap-2">
@@ -131,14 +142,12 @@ export const MyBranchView = () => {
                 onClick={openEdit}
                 className="flex-1 py-2 rounded-lg text-xs font-semibold text-[#111827] border border-gray-200 hover:bg-gray-50 transition-colors"
               >
-                Editar
-              </button>
+                 {translateCopy("Editar")} </button>
               <button
                 onClick={() => setShowEmployees(true)}
                 className="flex-1 py-2 rounded-lg text-xs font-semibold text-white bg-[#111827] hover:bg-gray-800 transition-colors"
               >
-                Ver empleados
-              </button>
+                 {translateCopy("Ver empleados")} </button>
             </div>
           </div>
         )}
@@ -146,49 +155,56 @@ export const MyBranchView = () => {
 
       <Dialog
         isOpen={isFormOpen}
-        title="Editar Sede"
-        subtitle={branch ? `Actualizando "${branch.name}"` : undefined}
+        title={translateCopy("Editar Sede")}
+        subtitle={branch ? `${translateCopy("Actualizando")} "${branch.name}"` : undefined}
         onClose={() => setIsFormOpen(false)}
       >
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div>
-            <label className={labelClass}>Nombre</label>
+            <label className={labelClass}>{translateCopy("Nombre")}</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              required
               className={inputClass}
-              placeholder="Ej: Sede Norte"
+              placeholder={translateCopy("Ej: Sede Norte")}
             />
+            {formErrors.name && (
+              <p className="text-xs text-red-500 mt-1">{translateCopy(formErrors.name)}</p>
+            )}
           </div>
           <div>
-            <label className={labelClass}>Dirección</label>
+            <label className={labelClass}>{translateCopy("Dirección")}</label>
             <input
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               className={inputClass}
-              placeholder="Ej: Calle 10 # 5-20"
+              placeholder={translateCopy("Ej: Calle 10 # 5-20")}
             />
+            {formErrors.address && (
+              <p className="text-xs text-red-500 mt-1">{translateCopy(formErrors.address)}</p>
+            )}
           </div>
           <div>
-            <label className={labelClass}>Teléfono</label>
+            <label className={labelClass}>{translateCopy("Teléfono")}</label>
             <input
               type="text"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               className={inputClass}
-              placeholder="Ej: 3001234567"
+              placeholder={translateCopy("Ej: 3001234567")}
             />
+            {formErrors.phone && (
+              <p className="text-xs text-red-500 mt-1">{translateCopy(formErrors.phone)}</p>
+            )}
           </div>
 
           <div className="flex items-center justify-between pt-3 border-t border-gray-100">
             <div>
-              <p className="text-sm font-bold text-[#111827]">Sede activa</p>
+              <p className="text-sm font-bold text-[#111827]">{translateCopy("Sede activa")}</p>
               <p className="text-xs text-gray-400 mt-0.5">
-                Determina si la sede opera actualmente.
-              </p>
+                 {translateCopy("Determina si la sede opera actualmente.")} </p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
               <input
@@ -207,14 +223,13 @@ export const MyBranchView = () => {
               onClick={() => setIsFormOpen(false)}
               className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
             >
-              Cancelar
-            </button>
+               {translateCopy("Cancelar")} </button>
             <button
               type="submit"
               disabled={saving}
               className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-all disabled:opacity-50"
             >
-              {saving ? "Guardando..." : "Guardar"}
+              {saving ? translateCopy("Guardando...") : translateCopy("Guardar")}
             </button>
           </div>
         </form>

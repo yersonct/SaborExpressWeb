@@ -1,7 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { orderService } from "../services/order.service";
+import { useAuth } from "@/features/auth/hooks/use-auth";
+import {
+  useRealtimeConnectionStatus,
+  useRealtimeEvents,
+} from "@/features/Dashboard/hooks/use-realtime-events";
 import type {
   Order,
   OrderFilter,
@@ -15,31 +20,47 @@ export function useOrders(filter?: OrderFilter) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const { session } = useAuth();
+  const userId = session?.userId ?? null;
+  const realtimeStatus = useRealtimeConnectionStatus(userId);
+  const hasLoadedRef = useRef(false);
+
+  // silent = true: recarga en segundo plano, sin mostrar errores en el tablero
+  const fetchOrders = useCallback(async (silent = false) => {
+    if (!hasLoadedRef.current) setLoading(true);
+    if (!silent) setError("");
     try {
       const data = await orderService.getAll(filter);
       const sorted = [...data].sort((a, b) => b.id - a.id);
       setOrders(sorted);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "No se pudieron cargar los pedidos",
-      );
+      if (!silent) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudieron cargar los pedidos",
+        );
+      }
     } finally {
       setLoading(false);
+      hasLoadedRef.current = true;
     }
-  }, [filter?.branchId, filter?.status]);
+  }, [filter?.branchId, filter?.status, filter?.fromDate, filter?.toDate]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
 
+  // Tiempo real: junta varios eventos seguidos en una sola recarga
+  const refreshImmediately = useCallback(() => {
+    void fetchOrders(true);
+  }, [fetchOrders]);
+
+  useRealtimeEvents(userId, ["OrdersChanged"], refreshImmediately, refreshImmediately);
+
   const createOrder = async (payload: CreateOrderPayload) => {
     const created = await orderService.create(payload);
-    await fetchOrders();
+    if (realtimeStatus !== "connected") await fetchOrders(true);
     return created;
   };
 
@@ -48,12 +69,12 @@ export function useOrders(filter?: OrderFilter) {
     payload: UpdateOrderStatusPayload,
   ) => {
     await orderService.updateStatus(id, payload);
-    await fetchOrders();
+    if (realtimeStatus !== "connected") await fetchOrders(true);
   };
 
   const cancelOrder = async (id: number, payload: CancelOrderPayload) => {
     await orderService.cancel(id, payload);
-    await fetchOrders();
+    if (realtimeStatus !== "connected") await fetchOrders(true);
   };
 
   return {
@@ -63,6 +84,6 @@ export function useOrders(filter?: OrderFilter) {
     createOrder,
     updateStatus,
     cancelOrder,
-    refetch: fetchOrders,
+    refetch: () => fetchOrders(),
   };
 }

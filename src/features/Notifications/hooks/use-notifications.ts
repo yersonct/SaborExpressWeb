@@ -1,12 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import * as signalR from "@microsoft/signalr";
+import { useCallback, useEffect, useState } from "react";
 import { notificationService } from "../services/notification.service";
 import type { Notification } from "../types/notification.types";
-
-const POLL_INTERVAL_MS = 20000; // 20 segundos (queda como respaldo)
-const HUB_URL = `${process.env.NEXT_PUBLIC_API_URL}/hubs/notifications`;
+import { useRealtimeEvents } from "@/features/Dashboard/hooks/use-realtime-events";
+import { useAdminDataChanged } from "@/features/Dashboard/hooks/use-admin-data-changed";
 
 function playNotificationSound() {
   try {
@@ -33,7 +31,6 @@ export function useNotifications(userId: number | null) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchUnreadCount = useCallback(async () => {
     if (!userId) return;
@@ -41,8 +38,7 @@ export function useNotifications(userId: number | null) {
       const count = await notificationService.getUnreadCount(userId);
       setUnreadCount(count);
     } catch {
-      // Silencioso a propósito: un fallo de polling no debe interrumpir al
-      // usuario con un toast cada 20 segundos.
+      // Silencioso: el socket actualizará el contador cuando llegue otro evento.
     }
   }, [userId]);
 
@@ -58,62 +54,39 @@ export function useNotifications(userId: number | null) {
     }
   }, [userId]);
 
-  // Polling del contador (liviano) cada 20s — respaldo si SignalR falla
-  useEffect(() => {
-    if (!userId) return;
-    fetchUnreadCount();
-    intervalRef.current = setInterval(fetchUnreadCount, POLL_INTERVAL_MS);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [userId, fetchUnreadCount]);
+  const handleNotification = useCallback(
+    (eventName?: string, ...args: unknown[]) => {
+      if (eventName !== "ReceiveNotification") return;
+      const nueva = args[0] as Notification | undefined;
+      if (!nueva || typeof nueva.id !== "number") return;
 
-  // Conexión en tiempo real por SignalR
-  useEffect(() => {
-    if (!userId) return;
-    let cancelled = false;
-
-    const connection = new signalR.HubConnectionBuilder()
-      .withUrl(HUB_URL, {
-        accessTokenFactory: () => {
-          const raw = localStorage.getItem("sabor-express-session");
-          return raw ? (JSON.parse(raw).token ?? "") : "";
-        },
-        withCredentials: false,
-      })
-      .withAutomaticReconnect()
-      .configureLogging(signalR.LogLevel.Critical)
-      .build();
-
-    connection.on("ReceiveNotification", (nueva: Notification) => {
       setNotifications((prev) => [nueva, ...prev]);
       if (!nueva.isRead) {
         setUnreadCount((prev) => prev + 1);
         playNotificationSound();
       }
-    });
+    },
+    [],
+  );
 
-    (async () => {
-      try {
-        // Si el token venció, el interceptor de Axios lo renueva aquí
-        // antes de que SignalR intente negociar.
-        await notificationService.getUnreadCount(userId);
-        if (cancelled) return;
-        await connection.start();
-      } catch (err: any) {
-        // React Strict Mode monta/desmonta el efecto dos veces en desarrollo;
-        // abortar a medio negociar es esperado, no un error real.
-        if (cancelled || err?.message?.includes("stopped during negotiation"))
-          return;
-        console.error("Error conectando a SignalR:", err);
-      }
-    })();
+  const refreshAfterChange = useCallback(() => {
+    void fetchAll().catch(() => fetchUnreadCount());
+  }, [fetchAll, fetchUnreadCount]);
 
-    return () => {
-      cancelled = true;
-      connection.stop();
-    };
-  }, [userId]);
+  useRealtimeEvents(
+    userId,
+    ["ReceiveNotification"],
+    handleNotification,
+    refreshAfterChange,
+  );
+  useRealtimeEvents(userId, ["NotificationsChanged"], refreshAfterChange);
+  useAdminDataChanged(userId, ["Notifications"], refreshAfterChange);
+
+  // Conteo inicial; los cambios posteriores llegan por SignalR.
+  useEffect(() => {
+    if (!userId) return;
+    void fetchUnreadCount();
+  }, [userId, fetchUnreadCount]);
 
   const markAsRead = async (id: number) => {
     await notificationService.markAsRead(id);
