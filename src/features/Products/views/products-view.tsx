@@ -1,6 +1,10 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
+import { translateCopy } from "@/config/copy-translations";
+import { formatMoney } from "@/lib/format-money";
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { SERVER_BASE_URL } from "@/config/api";
 import { NotificationModal } from "@/components/ui/modal";
@@ -29,13 +33,19 @@ const INITIAL_FORM = {
   branchId: "", // "" = producto global (todas las sedes)
   name: "",
   description: "",
+  nameEn: "",
+  namePt: "",
+  nameFr: "",
+  descriptionEn: "",
+  descriptionPt: "",
+  descriptionFr: "",
   price: "",
   preparationTimeInMinutes: "",
   status: true,
   photo: null as File | null,
 };
-
 export const ProductsView = () => {
+  useTranslation();
   const {
     products,
     loading,
@@ -75,7 +85,7 @@ export const ProductsView = () => {
   const [formErrors, setFormErrors] = useState<ProductFormErrors>({});
   const [formStep, setFormStep] = useState(1);
   const [stepError, setStepError] = useState("");
-  const [filterCategoryId, setFilterCategoryId] = useState<string>("");
+  const [filterCategoryId, setFilterCategoryId] = useRememberedUiState<string>("products", "category", "");
 
   // Solo categorías activas (se usa en el formulario: selector, resumen, y mensaje de aviso)
   const activeCategories = categories.filter((c) => c.status);
@@ -124,6 +134,12 @@ export const ProductsView = () => {
           : "",
       name: product.name,
       description: product.description,
+      nameEn: product.nameEn ?? "",
+      namePt: product.namePt ?? "",
+      nameFr: product.nameFr ?? "",
+      descriptionEn: product.descriptionEn ?? "",
+      descriptionPt: product.descriptionPt ?? "",
+      descriptionFr: product.descriptionFr ?? "",
       price: String(product.price),
       preparationTimeInMinutes: String(product.preparationTimeInMinutes),
       status: product.status,
@@ -213,13 +229,19 @@ export const ProductsView = () => {
           branchId: form.branchId ? Number(form.branchId) : undefined,
           name: form.name.trim(),
           description: form.description.trim(),
+          nameEn: form.nameEn.trim(),
+          namePt: form.namePt.trim(),
+          nameFr: form.nameFr.trim(),
+          descriptionEn: form.descriptionEn.trim(),
+          descriptionPt: form.descriptionPt.trim(),
+          descriptionFr: form.descriptionFr.trim(),
           price: Number(form.price),
           preparationTimeInMinutes: Number(form.preparationTimeInMinutes),
           status: form.status,
           photo: form.photo ?? undefined,
         });
         setNotify({
-          message: "Producto actualizado correctamente",
+          message: translateCopy("Producto actualizado correctamente"),
           type: "success",
         });
       } else {
@@ -228,12 +250,18 @@ export const ProductsView = () => {
           branchId: form.branchId ? Number(form.branchId) : undefined,
           name: form.name.trim(),
           description: form.description.trim(),
+          nameEn: form.nameEn.trim() || null,
+          namePt: form.namePt.trim() || null,
+          nameFr: form.nameFr.trim() || null,
+          descriptionEn: form.descriptionEn.trim() || null,
+          descriptionPt: form.descriptionPt.trim() || null,
+          descriptionFr: form.descriptionFr.trim() || null,
           price: Number(form.price),
           preparationTimeInMinutes: Number(form.preparationTimeInMinutes),
           photo: form.photo ?? undefined,
         });
         setNotify({
-          message: "Producto creado correctamente",
+          message: translateCopy("Producto creado correctamente"),
           type: "success",
         });
       }
@@ -241,7 +269,7 @@ export const ProductsView = () => {
     } catch (err) {
       setNotify({
         message:
-          err instanceof Error ? err.message : "No se pudo guardar el producto",
+          err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo guardar el producto"),
         type: "error",
       });
     } finally {
@@ -256,7 +284,7 @@ export const ProductsView = () => {
     } catch (err) {
       setNotify({
         message:
-          err instanceof Error ? err.message : "No se pudo cambiar el estado",
+          err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo cambiar el estado"),
         type: "error",
       });
     } finally {
@@ -270,7 +298,7 @@ export const ProductsView = () => {
     try {
       await deleteProduct(confirmDelete.id);
       setNotify({
-        message: "Producto eliminado correctamente",
+        message: translateCopy("Producto eliminado correctamente"),
         type: "success",
       });
       setConfirmDelete(null);
@@ -278,8 +306,8 @@ export const ProductsView = () => {
       setNotify({
         message:
           err instanceof Error
-            ? err.message
-            : "No se pudo eliminar el producto",
+            ? translateCopy(err.message)
+            : translateCopy("No se pudo eliminar el producto"),
         type: "error",
       });
       setConfirmDelete(null);
@@ -293,15 +321,14 @@ export const ProductsView = () => {
       <div className="flex justify-end">
         <button
           onClick={openCreate}
-          className="bg-[#EA1D2C] hover:bg-red-700 text-white font-bold py-3 px-6 rounded-xl shadow-sm transition-all flex items-center gap-2 hover:scale-[1.02]"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#EA1D2C] px-6 py-3 font-bold text-white shadow-sm transition-all hover:scale-[1.02] hover:bg-red-700 sm:w-auto"
         >
-          <span className="text-xl">+</span> Crear Producto
-        </button>
+          <span className="text-xl">+</span>  {translateCopy("Crear Producto")} </button>
       </div>
 
       {isOpen && (
-        <div className="fixed inset-0 w-screen h-screen bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all animate-fade-in">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl border border-gray-100 relative max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-3 backdrop-blur-sm transition-all animate-fade-in sm:items-center sm:p-4">
+          <div className="relative my-auto max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-3xl border border-gray-100 bg-white p-4 shadow-2xl sm:p-8">
             <button
               onClick={() => setIsOpen(false)}
               className="absolute top-5 right-5 text-gray-400 hover:text-gray-600 font-bold text-lg p-2"
@@ -310,12 +337,12 @@ export const ProductsView = () => {
             </button>
             <div className="mb-6">
               <h2 className="text-2xl font-black text-[#111827]">
-                {editingProduct ? "Editar Producto" : "Nuevo Producto"}
+                {editingProduct ? translateCopy("Editar Producto") : translateCopy("Nuevo Producto")}
               </h2>
               <p className="text-xs text-gray-500 mt-1">
                 {editingProduct
                   ? `Actualizando "${editingProduct.name}"`
-                  : "Completa los campos para añadir un artículo al menú digital."}
+                  : translateCopy("Completa los campos para añadir un artículo al menú digital.")}
               </p>
             </div>
 
@@ -352,14 +379,14 @@ export const ProductsView = () => {
                 ))}
               </div>
               <p className="text-center text-xs font-bold text-gray-400 uppercase tracking-wider">
-                {formStep === 1 && "Paso 1 de 3 — Información Básica"}
-                {formStep === 2 && "Paso 2 de 3 — Precio y Preparación"}
-                {formStep === 3 && "Paso 3 de 3 — Imagen"}
+                {formStep === 1 && translateCopy("Paso 1 de 3 — Información Básica")}
+                {formStep === 2 && translateCopy("Paso 2 de 3 — Precio y Preparación")}
+                {formStep === 3 && translateCopy("Paso 3 de 3 — Imagen")}
               </p>
 
               {stepError && (
                 <div className="bg-red-50 border border-red-100 text-red-600 text-xs font-medium rounded-xl px-4 py-3">
-                  {stepError}
+                  {translateCopy(stepError)}
                 </div>
               )}
 
@@ -367,25 +394,25 @@ export const ProductsView = () => {
               {formStep === 1 && (
                 <div className="space-y-5">
                   <div>
-                    <label className={labelClass}>Nombre del Producto</label>
+                    <label className={labelClass}>{translateCopy("Nombre del Producto")}</label>
                     <input
                       type="text"
                       value={form.name}
                       onChange={(e) =>
                         setForm({ ...form, name: e.target.value })
                       }
-                      placeholder="Ej. Empanada de Carne Crujiente"
+                      placeholder={translateCopy("Ej. Empanada de Carne Crujiente")}
                       className={inputClass}
                     />
                     {formErrors.name && (
                       <p className="text-xs text-red-500 mt-1">
-                        {formErrors.name}
+                        {translateCopy(formErrors.name)}
                       </p>
                     )}
                   </div>
 
                   <div>
-                    <label className={labelClass}>Categoría</label>
+                    <label className={labelClass}>{translateCopy("Categoría")}</label>
                     <select
                       value={form.categoryId}
                       onChange={(e) =>
@@ -393,7 +420,7 @@ export const ProductsView = () => {
                       }
                       className={inputClass}
                     >
-                      <option value="">Selecciona una categoría...</option>
+                      <option value="">{translateCopy("Selecciona una categoría...")}</option>
                       {activeCategories.map((cat) => (
                         <option key={cat.id} value={cat.id}>
                           {cat.name}
@@ -402,19 +429,17 @@ export const ProductsView = () => {
                     </select>
                     {formErrors.categoryId && (
                       <p className="text-xs text-red-500 mt-1">
-                        {formErrors.categoryId}
+                        {translateCopy(formErrors.categoryId)}
                       </p>
                     )}
                     {activeCategories.length === 0 && (
                       <p className="text-xs text-orange-600 mt-1">
-                        No hay categorías activas. Crea una primero en la
-                        pestaña "Categorías".
-                      </p>
+                         {translateCopy("No hay categorías activas. Crea una primero en la pestaña \"Categorías\".")} </p>
                     )}
                   </div>
 
                   <div>
-                    <label className={labelClass}>Sede</label>
+                    <label className={labelClass}>{translateCopy("Sede")}</label>
                     {isGerente ? (
                       <>
                         <select
@@ -424,7 +449,7 @@ export const ProductsView = () => {
                           }
                           className={inputClass}
                         >
-                          <option value="">Selecciona una sede...</option>
+                          <option value="">{translateCopy("Selecciona una sede...")}</option>
                           {branches.map((b) => (
                             <option key={b.id} value={b.id}>
                               {b.name}
@@ -432,38 +457,34 @@ export const ProductsView = () => {
                           ))}
                         </select>
                         <p className="text-[10px] text-gray-400 mt-1">
-                          Todo producto debe pertenecer a una sede específica.
-                        </p>
+                           {translateCopy("Todo producto debe pertenecer a una sede específica.")} </p>
                       </>
                     ) : (
                       <>
                         <div className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 text-sm text-gray-500">
-                          🏬 {myBranch?.name ?? "Cargando tu sede..."}
+                          🏬 {myBranch?.name ?? translateCopy("Cargando tu sede...")}
                         </div>
                         <p className="text-[10px] text-gray-400 mt-1">
-                          Como Administrador, este producto se asigna
-                          automáticamente a tu sede.
-                        </p>
+                           {translateCopy("Como Administrador, este producto se asigna automáticamente a tu sede.")} </p>
                       </>
                     )}
                   </div>
 
                   <div>
                     <label className={labelClass}>
-                      Descripción / Ingredientes
-                    </label>
+                       {translateCopy("Descripción / Ingredientes")} </label>
                     <textarea
                       rows={3}
                       value={form.description}
                       onChange={(e) =>
                         setForm({ ...form, description: e.target.value })
                       }
-                      placeholder="Describe el producto (ej. carne desmechada, papa tierna, masa de maíz crujiente acompañadas de ají)."
+                      placeholder={translateCopy("Describe el producto (ej. carne desmechada, papa tierna, masa de maíz crujiente acompañadas de ají).")}
                       className={`${inputClass} resize-none`}
                     ></textarea>
                     {formErrors.description && (
                       <p className="text-xs text-red-500 mt-1">
-                        {formErrors.description}
+                        {translateCopy(formErrors.description)}
                       </p>
                     )}
                   </div>
@@ -473,29 +494,30 @@ export const ProductsView = () => {
               {/* PASO 2 — PRECIO Y PREPARACIÓN */}
               {formStep === 2 && (
                 <div className="space-y-5">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
-                      <label className={labelClass}>Precio de Venta ($)</label>
+                      <label className={labelClass}>{translateCopy("Precio final de venta ($)")}</label>
                       <input
                         type="number"
                         value={form.price}
                         onChange={(e) =>
                           setForm({ ...form, price: e.target.value })
                         }
-                        placeholder="Ej. 4000"
+                        placeholder={translateCopy("Ej. 4000")}
                         min={0}
                         className={inputClass}
                       />
                       {formErrors.price && (
                         <p className="text-xs text-red-500 mt-1">
-                          {formErrors.price}
+                          {translateCopy(formErrors.price)}
                         </p>
                       )}
+                      <p className="text-xs text-gray-500 mt-1">
+                         {translateCopy("Es el precio al público; incluye Impoconsumo cuando aplique.")} </p>
                     </div>
                     <div>
                       <label className={labelClass}>
-                        Tiempo Preparación (min)
-                      </label>
+                         {translateCopy("Tiempo Preparación (min)")} </label>
                       <input
                         type="number"
                         value={form.preparationTimeInMinutes}
@@ -505,13 +527,13 @@ export const ProductsView = () => {
                             preparationTimeInMinutes: e.target.value,
                           })
                         }
-                        placeholder="Ej. 15"
+                        placeholder={translateCopy("Ej. 15")}
                         min={0}
                         className={inputClass}
                       />
                       {formErrors.preparationTimeInMinutes && (
                         <p className="text-xs text-red-500 mt-1">
-                          {formErrors.preparationTimeInMinutes}
+                          {translateCopy(formErrors.preparationTimeInMinutes)}
                         </p>
                       )}
                     </div>
@@ -520,12 +542,22 @@ export const ProductsView = () => {
                   {editingProduct && (
                     <div className="flex items-center justify-between pt-3 border-t border-gray-100">
                       <div>
-                        <p className="text-sm font-bold text-[#111827]">
-                          Producto activo
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-bold text-[#111827]">
+                            {translateCopy("Producto activo")}
+                          </p>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              form.status
+                                ? "bg-green-100 text-green-800"
+                                : "bg-slate-600 text-white"
+                            }`}
+                          >
+                            {translateCopy(form.status ? "Activo" : "Inactivo")}
+                          </span>
+                        </div>
                         <p className="text-xs text-gray-400 mt-0.5">
-                          Determina si aparece disponible en el menú.
-                        </p>
+                           {translateCopy("Determina si aparece disponible en el menú.")} </p>
                       </div>
                       <label className="relative inline-flex items-center cursor-pointer">
                         <input
@@ -534,9 +566,23 @@ export const ProductsView = () => {
                           onChange={(e) =>
                             setForm({ ...form, status: e.target.checked })
                           }
-                          className="sr-only peer"
+                          role="switch"
+                          aria-checked={form.status}
+                          aria-label={translateCopy("Producto activo")}
+                          className="peer sr-only"
                         />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+                        <span
+                          aria-hidden="true"
+                          className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${
+                            form.status ? "bg-emerald-500" : "bg-slate-500"
+                          } peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[#EA1D2C]`}
+                        >
+                          <span
+                            className={`pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                              form.status ? "translate-x-5" : "translate-x-0"
+                            }`}
+                          />
+                        </span>
                       </label>
                     </div>
                   )}
@@ -547,7 +593,7 @@ export const ProductsView = () => {
               {formStep === 3 && (
                 <div className="space-y-5">
                   <div>
-                    <label className={labelClass}>Imagen Ilustrativa</label>
+                    <label className={labelClass}>{translateCopy("Imagen Ilustrativa")}</label>
                     <div className="border-2 border-dashed border-gray-200 rounded-2xl p-6 text-center hover:border-[#EA1D2C] transition-colors cursor-pointer group bg-gray-50/50">
                       <input
                         type="file"
@@ -583,25 +629,22 @@ export const ProductsView = () => {
                         <p className="text-xs font-semibold text-gray-600">
                           {form.photo
                             ? form.photo.name
-                            : "Seleccionar archivo de imagen"}
+                            : translateCopy("Seleccionar archivo de imagen")}
                         </p>
                         <p className="text-[10px] text-gray-400 mt-1">
-                          Formatos recomendados: PNG, JPG (Max. 5MB)
-                        </p>
+                           {translateCopy("Formatos recomendados: PNG, JPG (Max. 5MB)")} </p>
                       </label>
                     </div>
                     {editingProduct?.photo && !form.photo && (
                       <p className="text-xs text-gray-500 mt-1">
-                        Ya existe una imagen cargada. Solo sube una nueva si
-                        deseas reemplazarla.
-                      </p>
+                         {translateCopy("Ya existe una imagen cargada. Solo sube una nueva si deseas reemplazarla.")} </p>
                     )}
                   </div>
 
                   {/* Vista previa */}
                   {(form.photo || editingProduct?.photo) && (
                     <div>
-                      <label className={labelClass}>Vista Previa</label>
+                      <label className={labelClass}>{translateCopy("Vista Previa")}</label>
                       <div className="w-full h-48 bg-gray-50 border border-gray-100 rounded-2xl flex items-center justify-center overflow-hidden">
                         <img
                           src={
@@ -609,7 +652,7 @@ export const ProductsView = () => {
                               ? URL.createObjectURL(form.photo)
                               : `${SERVER_BASE_URL}${editingProduct?.photo}`
                           }
-                          alt="Vista previa"
+                          alt={translateCopy("Vista previa")}
                           className="max-w-full max-h-full object-contain"
                         />
                       </div>
@@ -619,33 +662,31 @@ export const ProductsView = () => {
                   {/* Resumen antes de guardar */}
                   <div className="bg-gray-50 rounded-xl border border-gray-100 p-4 space-y-1">
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-                      Resumen
+                       {translateCopy("Resumen")} </p>
+                    <p className="text-xs text-gray-600">
+                      <strong>{translateCopy("Nombre:")}</strong> {form.name || "—"}
                     </p>
                     <p className="text-xs text-gray-600">
-                      <strong>Nombre:</strong> {form.name || "—"}
-                    </p>
-                    <p className="text-xs text-gray-600">
-                      <strong>Categoría:</strong>{" "}
+                      <strong>{translateCopy("Categoría:")}</strong>{" "}
                       {activeCategories.find(
                         (c) => String(c.id) === form.categoryId,
                       )?.name ?? "—"}
                     </p>
                     <p className="text-xs text-gray-600">
-                      <strong>Sede:</strong>{" "}
+                      <strong>{translateCopy("Sede:")}</strong>{" "}
                       {isGerente
                         ? form.branchId
                           ? branches.find((b) => String(b.id) === form.branchId)?.name ?? "—"
-                          : "Todas las sedes (global)"
+                          : translateCopy("Todas las sedes (global)")
                         : myBranch?.name ?? "—"}
                     </p>
                     <p className="text-xs text-gray-600">
-                      <strong>Precio:</strong> $
-                      {Number(form.price || 0).toLocaleString("es-CO")}
+                      <strong>{translateCopy("Precio:")}</strong>{" "}
+                      {formatMoney(Number(form.price || 0))}
                     </p>
                     <p className="text-xs text-gray-600">
-                      <strong>Preparación:</strong>{" "}
-                      {form.preparationTimeInMinutes || "0"} min
-                    </p>
+                      <strong>{translateCopy("Preparación:")}</strong>{" "}
+                      {form.preparationTimeInMinutes || "0"}  {translateCopy("min")} </p>
                   </div>
                 </div>
               )}
@@ -663,7 +704,7 @@ export const ProductsView = () => {
                   }}
                   className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl text-sm transition-colors"
                 >
-                  {formStep === 1 ? "Cancelar" : "Atrás"}
+                  {formStep === 1 ? translateCopy("Cancelar") : translateCopy("Atrás")}
                 </button>
 
                 {formStep < 3 ? (
@@ -672,8 +713,7 @@ export const ProductsView = () => {
                     onClick={goToNextStep}
                     className="flex-1 bg-[#EA1D2C] hover:bg-red-700 text-white font-bold py-3 rounded-xl text-sm transition-colors shadow-sm"
                   >
-                    Siguiente
-                  </button>
+                     {translateCopy("Siguiente")} </button>
                 ) : (
                   <button
                     type="button"
@@ -682,10 +722,10 @@ export const ProductsView = () => {
                     className="flex-1 bg-[#EA1D2C] hover:bg-red-700 text-white font-bold py-3 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
                   >
                     {saving
-                      ? "Guardando..."
+                      ? translateCopy("Guardando...")
                       : editingProduct
-                        ? "Guardar Cambios"
-                        : "Guardar Producto"}
+                        ? translateCopy("Guardar Cambios")
+                        : translateCopy("Guardar Producto")}
                   </button>
                 )}
               </div>
@@ -697,14 +737,13 @@ export const ProductsView = () => {
       <div className="space-y-4">
         <div className="flex items-center justify-between px-2">
           <h2 className="text-xl font-bold text-[#111827] tracking-tight">
-            Menú Actual
-          </h2>
+             {translateCopy("Menú Actual")} </h2>
           <select
             value={filterCategoryId}
             onChange={(e) => setFilterCategoryId(e.target.value)}
             className="text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-4 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#EA1D2C]"
           >
-            <option value="">Todas las categorías</option>
+            <option value="">{translateCopy("Todas las categorías")}</option>
             {categories.map((cat) => (
               <option key={cat.id} value={cat.id}>
                 {cat.name}
@@ -725,19 +764,19 @@ export const ProductsView = () => {
           </div>
         ) : error ? (
           <div className="bg-red-50 border border-red-100 rounded-2xl p-6 text-sm text-red-600">
-            {error}
+            {translateCopy(error)}
           </div>
         ) : filteredProducts.length === 0 ? (
-          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-16 text-center">
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 text-center sm:p-16">
             <div className="text-5xl mb-4">🍽️</div>
             <p className="text-gray-400 font-medium">
               {filterCategoryId
-                ? "No hay productos en esta categoría."
-                : "No hay productos registrados todavía."}
+                ? translateCopy("No hay productos en esta categoría.")
+                : translateCopy("No hay productos registrados todavía.")}
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 gap-6 p-1 md:max-h-[70vh] md:overflow-y-auto md:pr-3 md:grid-cols-2 lg:grid-cols-3 [scrollbar-width:thin]">
             {filteredProducts.map((product) => (
               <div
                 key={product.id}
@@ -764,14 +803,13 @@ export const ProductsView = () => {
 
                   {!product.status && (
                     <div className="absolute top-3 right-3 bg-red-100 text-red-700 text-xs font-bold px-2 py-1 rounded-md border border-red-200">
-                      Oculto al usuario
-                    </div>
+                       {translateCopy("Oculto al usuario")} </div>
                   )}
 
                   <button
                     onClick={() => setConfirmDelete(product)}
                     className="absolute top-3 left-3 bg-white/90 text-gray-400 hover:text-red-600 hover:bg-red-50 w-8 h-8 rounded-full flex items-center justify-center shadow-sm border border-gray-200 transition-all z-10"
-                    title="Eliminar producto"
+                    title={translateCopy("Eliminar producto")}
                   >
                     ✕
                   </button>
@@ -788,12 +826,12 @@ export const ProductsView = () => {
                         {product.name}
                       </h4>
                       <span className="text-[10px] font-bold text-gray-400 uppercase">
-                        {product.categoryName}
+                        {translateCopy("Categoría:")} {product.categoryName}
                         {product.branchName ? ` · ${product.branchName}` : ""}
                       </span>
                     </div>
                     <span className="font-black text-[#111827]">
-                      ${product.price.toLocaleString("es-CO")}
+                      {formatMoney(product.price)}
                     </span>
                   </div>
 
@@ -805,8 +843,7 @@ export const ProductsView = () => {
                     <div className="flex items-center gap-2">
                       <span className="text-gray-400 text-sm">⏱️</span>
                       <p className="text-xs font-bold text-gray-500">
-                        {product.preparationTimeInMinutes} min
-                      </p>
+                        {product.preparationTimeInMinutes}  {translateCopy("min")} </p>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -814,10 +851,9 @@ export const ProductsView = () => {
                         onClick={() => openEdit(product)}
                         className="text-[10px] font-bold text-gray-500 hover:text-[#EA1D2C] uppercase mr-2"
                       >
-                        Editar
-                      </button>
+                         {translateCopy("Editar")} </button>
                       <span className="text-[10px] font-bold text-gray-500 uppercase">
-                        {product.status ? "Activo" : "Inactivo"}
+                        {product.status ? translateCopy("Activo") : translateCopy("Inactivo")}
                       </span>
                       <button
                         onClick={() => handleToggle(product)}
@@ -843,7 +879,7 @@ export const ProductsView = () => {
 
       <Dialog
         isOpen={!!confirmDelete}
-        title="Eliminar Producto"
+        title={translateCopy("Eliminar Producto")}
         onClose={() => setConfirmDelete(null)}
       >
         <div className="flex items-start gap-4 mb-6">
@@ -851,24 +887,21 @@ export const ProductsView = () => {
             ⚠️
           </div>
           <p className="text-sm text-gray-600 pt-1.5">
-            ¿Seguro que deseas eliminar el producto{" "}
-            <strong className="text-[#111827]">{confirmDelete?.name}</strong>?
-            Esta acción no se puede deshacer.
-          </p>
+             {translateCopy("¿Seguro que deseas eliminar el producto")}{" "}
+            <strong className="text-[#111827]">{confirmDelete?.name}</strong>{translateCopy("? Esta acción no se puede deshacer.")} </p>
         </div>
         <div className="flex justify-end gap-3">
           <button
             onClick={() => setConfirmDelete(null)}
             className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
           >
-            Cancelar
-          </button>
+             {translateCopy("Cancelar")} </button>
           <button
             onClick={handleDelete}
             disabled={saving}
             className="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
           >
-            {saving ? "Eliminando..." : "Eliminar"}
+            {saving ? translateCopy("Eliminando...") : translateCopy("Eliminar")}
           </button>
         </div>
       </Dialog>

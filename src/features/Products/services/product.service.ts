@@ -19,6 +19,19 @@ function buildProductFormData(
 
   formData.append("name", payload.name);
   formData.append("description", payload.description);
+  for (const field of [
+    "nameEn",
+    "namePt",
+    "nameFr",
+    "descriptionEn",
+    "descriptionPt",
+    "descriptionFr",
+  ] as const) {
+    const value = payload[field];
+    if (value !== undefined && value !== null) {
+      formData.append(field, value.trim());
+    }
+  }
   formData.append("price", payload.price.toString());
   formData.append(
     "preparationTimeInMinutes",
@@ -41,14 +54,16 @@ export const productService = {
   // branchId opcional: filtra productos de esa sede + los globales
   getAll: async (branchId?: number): Promise<Product[]> => {
     const { data } = await http.get<Product[]>("/Products", {
-      params: branchId ? { branchId } : undefined,
+      params: { ...(branchId ? { branchId } : {}), includeInactive: true },
     });
     return data;
   },
 
   // GET /api/Products/{id} — cualquier autenticado
   getById: async (id: number): Promise<Product> => {
-    const { data } = await http.get<Product>(`/Products/${id}`);
+    const { data } = await http.get<Product>(`/Products/${id}`, {
+      params: { includeInactive: true },
+    });
     return data;
   },
 
@@ -56,6 +71,7 @@ export const productService = {
   getByCategory: async (categoryId: number): Promise<Product[]> => {
     const { data } = await http.get<Product[]>(
       `/Products/category/${categoryId}`,
+      { params: { includeInactive: true } },
     );
     return data;
   },

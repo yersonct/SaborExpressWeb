@@ -9,16 +9,14 @@ export interface MyProfile {
   branchId: number | null;
   branchName: string | null;
   roleNames: string[];
-  vehicle: string | null;
-  plate: string | null;
+  todayRoleName: string | null;
+  todayShiftState: "Active" | "Upcoming" | "Ended" | "None";
 }
 
 export interface UpdateMyProfilePayload {
   name: string;
   lastName?: string;
   phone?: string;
-  vehicle?: string;
-  plate?: string;
 }
 
 export const employeeMeService = {

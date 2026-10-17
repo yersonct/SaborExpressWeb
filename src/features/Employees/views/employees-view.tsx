@@ -1,6 +1,10 @@
 "use client";
 
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
+import { translateCopy } from "@/config/copy-translations";
+import { formatMoney } from "@/lib/format-money";
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { NotificationModal } from "@/components/ui/modal";
 import { useEmployees } from "../hooks/use-employees";
@@ -10,8 +14,13 @@ import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useBranches } from "@/features/branches/hooks/use-branches";
 import { useMyBranch } from "@/features/branches/hooks/use-my-branch";
 import type { Employee, EmployeeStatusFilter } from "../types/employee.types";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { ROUTES } from "@/config/routes";
+import {
+  consumeNavigationTarget,
+  pendingNavigationKeys,
+  rememberNavigationTarget,
+} from "@/config/pending-navigation";
 
 type NotifyState = { message: string; type: "success" | "error" } | null;
 
@@ -36,8 +45,19 @@ const INITIAL_FORM = {
 
 const ITEMS_PER_PAGE = 10;
 
+// El rol que se muestra es SOLO el del turno de hoy. "Cliente" nunca.
+// Excepción: el Gerente General sembrado no tiene turnos, así que
+// sin turno hoy se sigue mostrando como GERENTE.
+const getDisplayRoles = (emp: Employee): string[] => {
+  const today = (emp.todayRoleNames ?? []).filter(
+    (r) => r.toUpperCase() !== "CLIENTE",
+  );
+  return today;
+};
+
 export const EmployeesView = () => {
-  const [estado, setEstado] = useState<EmployeeStatusFilter>("activo");
+  const { t } = useTranslation();
+  const [estado, setEstado] = useRememberedUiState<EmployeeStatusFilter>("employees", "status", "activo");
   const {
     employees,
     loading,
@@ -45,11 +65,15 @@ export const EmployeesView = () => {
     createEmployee,
     updateEmployee,
     deactivateEmployee,
+    deleteEmployeePermanently,
   } = useEmployees(estado);
   const { roles, updateRequiresCvBulk } = useRoles();
   const { session, isHydrated } = useAuth();
+  const isGerente =
+    session?.roles?.some((r) => r.toUpperCase() === "GERENTE") ?? false;
   const isAdmin =
-    session?.roles?.some((r) => r.toUpperCase() === "ADMINISTRADOR") ?? false;
+    !isGerente &&
+    (session?.roles?.some((r) => r.toUpperCase() === "ADMINISTRADOR") ?? false);
 
   // Gerente: lista completa de sedes. Administrador: solo la suya.
   const { branches: allBranches } = useBranches(isHydrated && !isAdmin);
@@ -60,7 +84,6 @@ export const EmployeesView = () => {
   const [autoOpenedEditId, setAutoOpenedEditId] = useState<number | null>(
     null,
   );
-  const searchParams = useSearchParams();
   const [justCreatedEmployee, setJustCreatedEmployee] = useState<{
     id: number;
     name: string;
@@ -80,15 +103,19 @@ export const EmployeesView = () => {
     try {
       await updateRequiresCvBulk(staffRoles, !allRequireCv);
       setNotify({
-        message: `Hoja de vida ${!allRequireCv ? "ahora es obligatoria" : "ya no es obligatoria"} para todo el personal operativo.`,
+        message: translateCopy(
+          !allRequireCv
+            ? "La hoja de vida ahora es obligatoria para todo el personal operativo."
+            : "La hoja de vida ya no es obligatoria para todo el personal operativo.",
+        ),
         type: "success",
       });
     } catch (err) {
       setNotify({
         message:
           err instanceof Error
-            ? err.message
-            : "No se pudo actualizar el requisito",
+            ? translateCopy(err.message)
+            : translateCopy("No se pudo actualizar el requisito"),
         type: "error",
       });
     } finally {
@@ -101,7 +128,9 @@ export const EmployeesView = () => {
   const [confirmReactivate, setConfirmReactivate] = useState<Employee | null>(
     null,
   );
-  const [currentPage, setCurrentPage] = useState(1);
+  const [confirmDeleteEmployee, setConfirmDeleteEmployee] =
+    useState<Employee | null>(null);
+  const [currentPage, setCurrentPage] = useRememberedUiState<number>("employees", "page", 1);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
@@ -115,21 +144,48 @@ export const EmployeesView = () => {
  const [formStep, setFormStep] = useState(1);
  const [stepError, setStepError] = useState("");
 
+  useEffect(() => {
+    if (!isAdmin || !isFormOpen || !myBranch) return;
+    const branchId = String(myBranch.id);
+    setForm((current) =>
+      current.branchId === branchId ? current : { ...current, branchId },
+    );
+  }, [isAdmin, isFormOpen, myBranch]);
+
   // El CV ya no se exige aquí: se valida al crear el turno con un rol
   // que lo requiera, en la pantalla de Turnos.
   const cvIsRequired = false;
 
-  const totalPages = Math.ceil(employees.length / ITEMS_PER_PAGE);
+  // El Gerente sin turno hoy (el General sembrado) no se muestra en Personal.
+  // Si un Gerente tiene turno hoy (asignado por otro Gerente), sí aparece.
+  const visibleEmployees = employees.filter((e) => {
+    // Defensa adicional: nunca mostrar un "Activo" cuando se eligio "Retirados".
+    const status = e.status.trim().toLowerCase();
+    const matchesStatus =
+      estado === "todos" ||
+      (estado === "activo" && status === "activo") ||
+      (estado === "retirado" && status === "retirado");
+    const isUnassignedManager =
+      e.roleNames.some((r) => r.toUpperCase() === "GERENTE") &&
+      e.todayShiftState === "None";
+    return matchesStatus && !isUnassignedManager;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(visibleEmployees.length / ITEMS_PER_PAGE));
+  useEffect(() => {
+    if (!loading && currentPage > totalPages) setCurrentPage(totalPages);
+  }, [loading, currentPage, totalPages]);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const paginatedEmployees = employees.slice(
+  const paginatedEmployees = visibleEmployees.slice(
     startIndex,
     startIndex + ITEMS_PER_PAGE,
   );
   useEffect(() => {
-    const editIdParam = searchParams.get("editEmployeeId");
-    if (!editIdParam || employees.length === 0) return;
-
-    const employeeId = Number(editIdParam);
+    if (employees.length === 0) return;
+    const employeeId = consumeNavigationTarget(
+      pendingNavigationKeys.editEmployee,
+    );
+    if (employeeId === null) return;
     if (autoOpenedEditId === employeeId) return; // evita reabrir en cada render
 
     const emp = employees.find((e) => e.id === employeeId);
@@ -137,12 +193,14 @@ export const EmployeesView = () => {
 
     setAutoOpenedEditId(employeeId);
     openEdit(emp);
-    router.replace(ROUTES.employees);;
-  }, [searchParams, employees, autoOpenedEditId]);
+  }, [employees, autoOpenedEditId]);
 
 const openCreate = () => {
   setEditingEmployee(null);
-  setForm(INITIAL_FORM);
+  setForm({
+    ...INITIAL_FORM,
+    branchId: isAdmin && myBranch ? String(myBranch.id) : "",
+  });
   setFormStep(1);
   setStepError("");
   setIsFormOpen(true);
@@ -176,7 +234,7 @@ const openCreate = () => {
       setTimeout(() => window.URL.revokeObjectURL(url), 60000);
     } catch (err) {
       setNotify({
-        message: "No se pudo cargar la hoja de vida",
+        message: translateCopy("No se pudo cargar la hoja de vida"),
         type: "error",
       });
     } finally {
@@ -198,7 +256,7 @@ const openCreate = () => {
       window.URL.revokeObjectURL(url);
     } catch (err) {
       setNotify({
-        message: "No se pudo descargar la hoja de vida",
+        message: translateCopy("No se pudo descargar la hoja de vida"),
         type: "error",
       });
     } finally {
@@ -285,7 +343,7 @@ const handleSave = async () => {
         cv: form.cv ?? undefined,
       });
       setNotify({
-        message: "Empleado actualizado correctamente",
+        message: translateCopy("Empleado actualizado correctamente"),
         type: "success",
       });
     } else {
@@ -306,7 +364,7 @@ const handleSave = async () => {
   } catch (err) {
     setNotify({
       message:
-        err instanceof Error ? err.message : "No se pudo guardar el empleado",
+        err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo guardar el empleado"),
       type: "error",
     });
   } finally {
@@ -334,13 +392,35 @@ const handleToggleStatus = async (emp: Employee) => {
       });
     }
     setNotify({
-      message: `Empleado ${nextStatus === "Activo" ? "reactivado" : "suspendido"} correctamente`,
+      message: `${translateCopy("Empleado")} ${nextStatus === "Activo" ? translateCopy("reactivado") : translateCopy("suspendido")} ${translateCopy("correctamente")}`,
       type: "success",
     });
   } catch (err) {
     setNotify({
       message:
-        err instanceof Error ? err.message : "No se pudo actualizar el estado",
+        err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo actualizar el estado"),
+      type: "error",
+    });
+  } finally {
+    setSaving(false);
+  }
+};
+
+const handlePermanentDelete = async (emp: Employee) => {
+  setSaving(true);
+  try {
+    await deleteEmployeePermanently(emp.id);
+    setConfirmDeleteEmployee(null);
+    setNotify({
+      message: translateCopy("Empleado eliminado permanentemente"),
+      type: "success",
+    });
+  } catch (err) {
+    setNotify({
+      message:
+        err instanceof Error
+          ? translateCopy(err.message)
+          : translateCopy("No se pudo eliminar el empleado"),
       type: "error",
     });
   } finally {
@@ -355,21 +435,18 @@ const handleToggleStatus = async (emp: Employee) => {
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
           <div>
             <h1 className="text-3xl font-bold text-[#111827] tracking-tight">
-              Gestión de Talento
+              {t("pageTitles.employees")}
             </h1>
             <p className="text-sm text-gray-500 mt-1">
-              Administración de personal, roles y accesos al sistema.
-            </p>
+               {translateCopy("Administración de personal, roles y accesos al sistema.")} </p>
           </div>
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3 bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 lg:gap-6">
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-2.5">
               <div>
                 <p className="text-xs font-bold text-[#111827]">
-                  Exigir hoja de vida
-                </p>
+                   {translateCopy("Exigir hoja de vida")} </p>
                 <p className="text-[10px] text-gray-500">
-                  Aplica a Mesero, Cajero, Cocinero y Repartidor
-                </p>
+                   {translateCopy("Aplica a Mesero, Cajero, Cocinero, Auxiliar de cocina y Repartidor")} </p>
               </div>
               <button
                 onClick={handleToggleCvRequirement}
@@ -387,10 +464,9 @@ const handleToggleStatus = async (emp: Employee) => {
             </div>
             <button
               onClick={openCreate}
-              className="bg-[#111827] hover:bg-gray-800 text-white font-bold py-3 px-6 rounded-xl shadow-sm transition-all flex items-center gap-2 hover:scale-[1.02]"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#111827] px-6 py-3 font-bold text-white shadow-sm transition-all hover:scale-[1.02] hover:bg-gray-800 sm:w-auto"
             >
-              <span className="text-xl">+</span> Registrar Empleado
-            </button>
+              <span className="text-xl">+</span>  {translateCopy("Registrar Empleado")} </button>
           </div>
         </div>
 
@@ -400,14 +476,13 @@ const handleToggleStatus = async (emp: Employee) => {
             <div>
               <h2 className="text-lg font-bold text-[#111827] flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-[#EA1D2C]"></span>{" "}
-                Directorio de Empleados
-              </h2>
+                 {translateCopy("Directorio de Empleados")} </h2>
               <p className="text-xs font-semibold text-[#EA1D2C] mt-1">
-                {employees.length}{" "}
-                {employees.length === 1 ? "empleado" : "empleados"}
-                {estado === "activo" && " activos"}
-                {estado === "retirado" && " retirados"}
-                {estado === "todos" && " en total"}
+                {visibleEmployees.length}{" "}
+                {visibleEmployees.length === 1 ? translateCopy("empleado") : translateCopy("empleados")}
+                {estado === "activo" && translateCopy(" activos")}
+                {estado === "retirado" && translateCopy(" retirados")}
+                {estado === "todos" && translateCopy(" en total")}
               </p>
             </div>
             <select
@@ -418,9 +493,9 @@ const handleToggleStatus = async (emp: Employee) => {
               }}
               className="text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-4 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#111827]"
             >
-              <option value="activo">Activos</option>
-              <option value="retirado">Retirados</option>
-              <option value="todos">Todos</option>
+              <option value="activo">{translateCopy("Activos")}</option>
+              <option value="retirado">{translateCopy("Retirados")}</option>
+              <option value="todos">{translateCopy("Todos")}</option>
             </select>
           </div>
 
@@ -435,31 +510,30 @@ const handleToggleStatus = async (emp: Employee) => {
               ))}
             </div>
           ) : error ? (
-            <div className="p-6 text-sm text-red-600">{error}</div>
-          ) : employees.length === 0 ? (
-            <div className="p-16 text-center">
+            <div className="p-6 text-sm text-red-600">{translateCopy(error)}</div>
+          ) : visibleEmployees.length === 0 ? (
+            <div className="p-6 text-center sm:p-16">
               <div className="text-5xl mb-4">👥</div>
               <p className="text-gray-400 font-medium">
-                No hay empleados{" "}
+                 {translateCopy("No hay empleados")}{" "}
                 {estado === "activo"
-                  ? "activos"
+                  ? translateCopy("activos")
                   : estado === "retirado"
-                    ? "retirados"
+                    ? translateCopy("retirados")
                     : ""}{" "}
-                registrados.
-              </p>
+                 {translateCopy("registrados.")} </p>
             </div>
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
+                <table className="w-full min-w-[760px] text-left border-collapse">
                   <thead>
                     <tr className="bg-gray-50 text-[10px] uppercase tracking-wider text-gray-500 border-b border-gray-100">
-                      <th className="p-4 font-bold">Empleado</th>
-                      <th className="p-4 font-bold">Contacto</th>
-                      <th className="p-4 font-bold">Rol / Sede</th>
-                      <th className="p-4 font-bold text-center">Estado</th>
-                      <th className="p-4 font-bold text-center">Acciones</th>
+                      <th className="p-4 font-bold">{translateCopy("Empleado")}</th>
+                      <th className="p-4 font-bold">{translateCopy("Contacto")}</th>
+                      <th className="p-4 font-bold">{translateCopy("Rol / Sede")}</th>
+                      <th className="p-4 font-bold text-center">{translateCopy("Estado")}</th>
+                      <th className="p-4 font-bold text-center">{translateCopy("Acciones")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -482,7 +556,7 @@ const handleToggleStatus = async (emp: Employee) => {
                                   {emp.name} {emp.lastName ?? ""}
                                 </h4>
                                 <p className="text-xs text-gray-500">
-                                  CC: {emp.document}
+                                   {translateCopy("CC:")} {emp.document}
                                 </p>
                               </div>
                             </div>
@@ -497,17 +571,30 @@ const handleToggleStatus = async (emp: Employee) => {
                           </td>
                           <td className="p-4">
                             <div className="flex flex-wrap gap-1">
-                              {emp.roleNames.map((role) => (
+                              {getDisplayRoles(emp).map((role) => (
                                 <span
                                   key={role}
                                   className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-700"
                                 >
-                                  {role}
+                                  {translateCopy(role)}
                                 </span>
                               ))}
                             </div>
+                            {getDisplayRoles(emp).length === 0 && (
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                  emp.todayShiftState === "Ended"
+                                    ? "bg-yellow-100 text-yellow-700"
+                                    : "bg-gray-100 text-gray-500"
+                                }`}
+                              >
+                                {emp.todayShiftState === "Ended"
+                                  ? translateCopy("Turno terminado")
+                                  : translateCopy("Sin turno hoy")}
+                              </span>
+                            )}
                             <p className="text-[10px] text-gray-500 mt-1">
-                              {branch?.name ?? "Sin sede"}
+                              {emp.todayBranchName ?? branch?.name ?? translateCopy("Sin sede")}
                             </p>
                           </td>
                           <td className="p-4 text-center">
@@ -521,7 +608,7 @@ const handleToggleStatus = async (emp: Employee) => {
                               <span
                                 className={`w-1.5 h-1.5 rounded-full ${emp.status === "Activo" ? "bg-green-500" : "bg-red-500"}`}
                               ></span>
-                              {emp.status}
+                              {translateCopy(emp.status)}
                             </span>
                           </td>
                           <td className="p-4">
@@ -530,14 +617,12 @@ const handleToggleStatus = async (emp: Employee) => {
                                 onClick={() => openView(emp)}
                                 className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors"
                               >
-                                Ver
-                              </button>
+                                 {translateCopy("Ver")} </button>
                               <button
                                 onClick={() => openEdit(emp)}
                                 className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 transition-colors"
                               >
-                                Editar
-                              </button>
+                                 {translateCopy("Editar")} </button>
                               <button
                                 onClick={() => {
                                   if (emp.status === "Activo") {
@@ -549,8 +634,17 @@ const handleToggleStatus = async (emp: Employee) => {
                                 disabled={saving}
                                 className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-yellow-50 hover:text-yellow-600 hover:border-yellow-200 transition-colors disabled:opacity-50"
                               >
-                                {emp.status === "Activo" ? "Suspender" : "Reactivar"}
+                                {translateCopy(emp.status === "Activo" ? "Suspender" : "Reactivar")}
                               </button>
+                              {(isGerente || isAdmin) && (
+                                <button
+                                  onClick={() => setConfirmDeleteEmployee(emp)}
+                                  disabled={saving}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-[#EA1D2C] border border-[#EA1D2C] hover:bg-[#EA1D2C] hover:text-white transition-colors disabled:opacity-50"
+                                >
+                                  {translateCopy("Eliminar")}
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -561,22 +655,21 @@ const handleToggleStatus = async (emp: Employee) => {
               </div>
 
               {totalPages > 1 && (
-                <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100">
+              <div className="flex flex-col gap-3 border-t border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
                   <p className="text-xs text-gray-500">
-                    Mostrando {startIndex + 1}–
-                    {Math.min(startIndex + ITEMS_PER_PAGE, employees.length)} de{" "}
-                    {employees.length}
+                     {translateCopy("Mostrando")} {startIndex + 1}–
+                    {Math.min(startIndex + ITEMS_PER_PAGE, visibleEmployees.length)}  {translateCopy("de")}{" "}
+                    {visibleEmployees.length}
                   </p>
-                  <div className="flex gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                       disabled={currentPage === 1}
                       className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Anterior
-                    </button>
+                       {translateCopy("Anterior")} </button>
                     <span className="px-3 py-1.5 text-xs font-bold text-gray-500">
-                      Página {currentPage} de {totalPages}
+                       {translateCopy("Página")} {currentPage}  {translateCopy("de")} {totalPages}
                     </span>
                     <button
                       onClick={() =>
@@ -585,8 +678,7 @@ const handleToggleStatus = async (emp: Employee) => {
                       disabled={currentPage === totalPages}
                       className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Siguiente
-                    </button>
+                       {translateCopy("Siguiente")} </button>
                   </div>
                 </div>
               )}
@@ -598,12 +690,12 @@ const handleToggleStatus = async (emp: Employee) => {
         <Dialog
           isOpen={isFormOpen}
           title={
-            editingEmployee ? "Editar Empleado" : "Registrar Nuevo Empleado"
+            editingEmployee ? translateCopy("Editar Empleado") : translateCopy("Registrar Nuevo Empleado")
           }
           subtitle={
             editingEmployee
-              ? `Actualizando a ${editingEmployee.name}`
-              : "El sistema enviará un código de activación al correo."
+              ? `${translateCopy("Actualizando a")} ${editingEmployee.name}`
+              : translateCopy("El sistema enviará un código de activación al correo.")
           }
           onClose={() => setIsFormOpen(false)}
         >
@@ -642,14 +734,14 @@ const handleToggleStatus = async (emp: Employee) => {
               ))}
             </div>
             <p className="text-center text-xs font-bold text-gray-400 uppercase tracking-wider">
-              {formStep === 1 && "Paso 1 de 3 — Datos Personales"}
-              {formStep === 2 && "Paso 2 de 3 — Asignación Laboral"}
-              {formStep === 3 && "Paso 3 de 3 — Documentación"}
+              {formStep === 1 && translateCopy("Paso 1 de 3 — Datos Personales")}
+              {formStep === 2 && translateCopy("Paso 2 de 3 — Asignación Laboral")}
+              {formStep === 3 && translateCopy("Paso 3 de 3 — Documentación")}
             </p>
 
             {stepError && (
               <div className="bg-red-50 border border-red-100 text-red-600 text-xs font-medium rounded-xl px-4 py-3">
-                {stepError}
+                {translateCopy(stepError)}
               </div>
             )}
 
@@ -658,7 +750,7 @@ const handleToggleStatus = async (emp: Employee) => {
               <div className="space-y-5">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
-                    <label className={labelClass}>Nombre *</label>
+                    <label className={labelClass}>{translateCopy("Nombre *")}</label>
                     <input
                       type="text"
                       value={form.name}
@@ -666,11 +758,11 @@ const handleToggleStatus = async (emp: Employee) => {
                         setForm({ ...form, name: e.target.value })
                       }
                       className={inputClass}
-                      placeholder="Ej. Juan"
+                      placeholder={translateCopy("Ej. Juan")}
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>Apellido</label>
+                    <label className={labelClass}>{translateCopy("Apellido")}</label>
                     <input
                       type="text"
                       value={form.lastName}
@@ -678,7 +770,7 @@ const handleToggleStatus = async (emp: Employee) => {
                         setForm({ ...form, lastName: e.target.value })
                       }
                       className={inputClass}
-                      placeholder="Ej. Pérez"
+                      placeholder={translateCopy("Ej. Pérez")}
                     />
                   </div>
                 </div>
@@ -686,8 +778,7 @@ const handleToggleStatus = async (emp: Employee) => {
                 {!editingEmployee && (
                   <div>
                     <label className={labelClass}>
-                      Documento de Identidad *
-                    </label>
+                       {translateCopy("Documento de Identidad *")} </label>
                     <input
                       type="text"
                       value={form.document}
@@ -695,7 +786,7 @@ const handleToggleStatus = async (emp: Employee) => {
                         setForm({ ...form, document: e.target.value })
                       }
                       className={inputClass}
-                      placeholder="Ej. 123456789"
+                      placeholder={translateCopy("Ej. 123456789")}
                     />
                   </div>
                 )}
@@ -703,7 +794,7 @@ const handleToggleStatus = async (emp: Employee) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
                     <label className={labelClass}>
-                      Correo Electrónico {!editingEmployee && "*"}
+                       {translateCopy("Correo Electrónico")} {!editingEmployee && "*"}
                     </label>
                     <input
                       type="email"
@@ -712,11 +803,11 @@ const handleToggleStatus = async (emp: Employee) => {
                         setForm({ ...form, email: e.target.value })
                       }
                       className={inputClass}
-                      placeholder="ejemplo@saborexpress.com"
+                      placeholder={translateCopy("ejemplo@saborexpress.com")}
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>Teléfono</label>
+                    <label className={labelClass}>{translateCopy("Teléfono")}</label>
                     <input
                       type="tel"
                       value={form.phone}
@@ -724,13 +815,13 @@ const handleToggleStatus = async (emp: Employee) => {
                         setForm({ ...form, phone: e.target.value })
                       }
                       className={inputClass}
-                      placeholder="Ej. 3001234567"
+                      placeholder={translateCopy("Ej. 3001234567")}
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className={labelClass}>Dirección</label>
+                  <label className={labelClass}>{translateCopy("Dirección")}</label>
                   <input
                     type="text"
                     value={form.address}
@@ -738,7 +829,7 @@ const handleToggleStatus = async (emp: Employee) => {
                       setForm({ ...form, address: e.target.value })
                     }
                     className={inputClass}
-                    placeholder="Ej. Calle 123 #45-67"
+                    placeholder={translateCopy("Ej. Calle 123 #45-67")}
                   />
                 </div>
               </div>
@@ -749,15 +840,18 @@ const handleToggleStatus = async (emp: Employee) => {
               <div className="space-y-5">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
-                    <label className={labelClass}>Sede</label>
+                    <label className={labelClass}>{translateCopy("Sede")}</label>
                     <select
                       value={form.branchId}
                       onChange={(e) =>
                         setForm({ ...form, branchId: e.target.value })
                       }
-                      className={inputClass}
+                      disabled={isAdmin}
+                      className={`${inputClass} ${isAdmin ? "bg-gray-100 opacity-80 cursor-not-allowed" : ""}`}
                     >
-                      <option value="">Sin sede asignada</option>
+                      {!isAdmin && (
+                        <option value="">{translateCopy("Sin sede asignada")}</option>
+                      )}
                       {branches.map((b) => (
                         <option key={b.id} value={b.id}>
                           {b.name}
@@ -766,7 +860,7 @@ const handleToggleStatus = async (emp: Employee) => {
                     </select>
                   </div>
                   <div>
-                    <label className={labelClass}>Salario Base *</label>
+                    <label className={labelClass}>{translateCopy("Salario Base *")}</label>
                     <input
                       type="number"
                       value={form.basePay}
@@ -775,17 +869,13 @@ const handleToggleStatus = async (emp: Employee) => {
                       }
                       min={0}
                       className={inputClass}
-                      placeholder="Ej. 1300000"
+                      placeholder={translateCopy("Ej. 1300000")}
                     />
                   </div>
                 </div>
 
                 <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-4 text-xs text-blue-700">
-                  La Sede es la sede base del empleado (la que usa su dispositivo
-                  móvil para operar). Los roles operativos (Mesero, Cajero,
-                  Cocinero, Repartidor) se asignan por separado desde la
-                  pantalla de Turnos, al crear su primer turno.
-                </div>
+                   {translateCopy("La Sede es la sede base del empleado (la que usa su dispositivo móvil para operar). Los roles operativos (Mesero, Cajero, Cocinero, Repartidor) se asignan por separado desde la pantalla de Turnos, al crear su primer turno.")} </div>
               </div>
             )}
 
@@ -794,7 +884,7 @@ const handleToggleStatus = async (emp: Employee) => {
               <div className="space-y-5">
                 {editingEmployee ? (
                   <div>
-                    <label className={labelClass}>Hoja de Vida (CV)</label>
+                    <label className={labelClass}>{translateCopy("Hoja de Vida (CV)")}</label>
                     <input
                       type="file"
                       accept=".pdf,.doc,.docx"
@@ -807,46 +897,39 @@ const handleToggleStatus = async (emp: Employee) => {
                      hover:file:bg-gray-800 focus:outline-none transition-all cursor-pointer"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Súbela si el rol que le asignaste en Turnos la requiere.
-                      Puedes subirla o actualizarla en cualquier momento.
-                    </p>
+                       {translateCopy("Súbela si el rol que le asignaste en Turnos la requiere. Puedes subirla o actualizarla en cualquier momento.")} </p>
                     {editingEmployee?.hasCv && (
                       <p className="text-xs text-gray-500 mt-1">
-                        Ya existe un CV cargado. Solo sube uno nuevo si deseas
-                        reemplazarlo.
-                      </p>
+                         {translateCopy("Ya existe un CV cargado. Solo sube uno nuevo si deseas reemplazarlo.")} </p>
                     )}
                   </div>
                 ) : (
                   <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-6 text-center">
                     <p className="text-sm text-gray-400">
-                      La hoja de vida se sube después, editando el empleado,
-                      una vez le hayas asignado su primer turno.
-                    </p>
+                       {translateCopy("La hoja de vida se sube después, editando el empleado, una vez le hayas asignado su primer turno.")} </p>
                   </div>
                 )}
 
                 {/* RESUMEN antes de guardar */}
                 <div className="bg-gray-50 rounded-xl border border-gray-100 p-4 space-y-1">
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-                    Resumen
+                     {translateCopy("Resumen")} </p>
+                  <p className="text-xs text-gray-600">
+                    <strong>{translateCopy("Nombre:")}</strong> {form.name} {form.lastName}
                   </p>
                   <p className="text-xs text-gray-600">
-                    <strong>Nombre:</strong> {form.name} {form.lastName}
+                    <strong>{translateCopy("Correo:")}</strong> {form.email || "—"}
                   </p>
                   <p className="text-xs text-gray-600">
-                    <strong>Correo:</strong> {form.email || "—"}
+                    <strong>{translateCopy("Roles de hoy:")}</strong>{" "}
+                    {editingEmployee && getDisplayRoles(editingEmployee).length
+                      ? getDisplayRoles(editingEmployee).map(translateCopy).join(", ")
+                      : translateCopy("Sin turno hoy (se asignan desde Turnos)")}
                   </p>
                   <p className="text-xs text-gray-600">
-                    <strong>Roles actuales:</strong>{" "}
-                    {editingEmployee?.roleNames?.length
-                      ? editingEmployee.roleNames.join(", ")
-                      : "Ninguno todavía (se asignan desde Turnos)"}
-                  </p>
-                  <p className="text-xs text-gray-600">
-                    <strong>Sede:</strong>{" "}
+                    <strong>{translateCopy("Sede:")}</strong>{" "}
                     {branches.find((b) => String(b.id) === form.branchId)
-                      ?.name ?? "Sin sede asignada"}
+                      ?.name ?? translateCopy("Sin sede asignada")}
                   </p>
                 </div>
               </div>
@@ -865,7 +948,7 @@ const handleToggleStatus = async (emp: Employee) => {
                 }}
                 className="px-6 py-3 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-100 border border-gray-200 transition-colors"
               >
-                {formStep === 1 ? "Cancelar" : "Atrás"}
+                {formStep === 1 ? translateCopy("Cancelar") : translateCopy("Atrás")}
               </button>
 
               {formStep < 3 ? (
@@ -874,8 +957,7 @@ const handleToggleStatus = async (emp: Employee) => {
                   onClick={goToNextStep}
                   className="bg-[#111827] hover:bg-gray-800 text-white font-bold px-8 py-3 rounded-xl text-sm transition-colors shadow-sm"
                 >
-                  Siguiente
-                </button>
+                   {translateCopy("Siguiente")} </button>
               ) : (
                 <button
                   type="button"
@@ -884,10 +966,10 @@ const handleToggleStatus = async (emp: Employee) => {
                   className="bg-[#111827] hover:bg-gray-800 text-white font-bold px-8 py-3 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
                 >
                   {saving
-                    ? "Guardando..."
+                    ? translateCopy("Guardando...")
                     : editingEmployee
-                      ? "Guardar Cambios"
-                      : "Guardar y Generar Acceso"}
+                      ? translateCopy("Guardar Cambios")
+                      : translateCopy("Guardar y Generar Acceso")}
                 </button>
               )}
             </div>
@@ -897,7 +979,7 @@ const handleToggleStatus = async (emp: Employee) => {
         {/* MODAL: VER DETALLES */}
         <Dialog
           isOpen={isViewOpen}
-          title="Detalles del Empleado"
+          title={translateCopy("Detalles del Empleado")}
           onClose={() => setIsViewOpen(false)}
         >
           {selectedEmployee && (
@@ -910,12 +992,12 @@ const handleToggleStatus = async (emp: Employee) => {
                   {selectedEmployee.name} {selectedEmployee.lastName ?? ""}
                 </h2>
                 <div className="flex flex-wrap gap-1 justify-center mt-2">
-                  {selectedEmployee.roleNames.map((role) => (
+                  {getDisplayRoles(selectedEmployee).map((role) => (
                     <span
                       key={role}
                       className="text-xs font-bold text-[#EA1D2C]"
                     >
-                      {role}
+                      {translateCopy(role)}
                     </span>
                   ))}
                 </div>
@@ -933,43 +1015,38 @@ const handleToggleStatus = async (emp: Employee) => {
               <div className="space-y-4 bg-gray-50 p-5 rounded-2xl border border-gray-100">
                 <div className="flex justify-between border-b border-gray-200 pb-2">
                   <span className="text-xs font-bold text-gray-500 uppercase">
-                    Documento
-                  </span>
+                     {translateCopy("Documento")} </span>
                   <span className="text-sm font-semibold text-gray-800">
                     {selectedEmployee.document}
                   </span>
                 </div>
                 <div className="flex justify-between border-b border-gray-200 pb-2">
                   <span className="text-xs font-bold text-gray-500 uppercase">
-                    Teléfono
-                  </span>
+                     {translateCopy("Teléfono")} </span>
                   <span className="text-sm font-semibold text-gray-800">
                     {selectedEmployee.phone ?? "—"}
                   </span>
                 </div>
                 <div className="flex justify-between border-b border-gray-200 pb-2">
                   <span className="text-xs font-bold text-gray-500 uppercase">
-                    Correo
-                  </span>
+                     {translateCopy("Correo")} </span>
                   <span className="text-sm font-semibold text-gray-800">
                     {selectedEmployee.email ?? "—"}
                   </span>
                 </div>
                 <div className="flex justify-between border-b border-gray-200 pb-2">
                   <span className="text-xs font-bold text-gray-500 uppercase">
-                    Salario Base
-                  </span>
+                     {translateCopy("Salario Base")} </span>
                   <span className="text-sm font-semibold text-gray-800">
-                    ${selectedEmployee.basePay.toLocaleString("es-CO")}
+                    {formatMoney(selectedEmployee.basePay)}
                   </span>
                 </div>
                 <div>
                   <div className="flex justify-between items-center">
                     <span className="text-xs font-bold text-gray-500 uppercase">
-                      Hoja de Vida
-                    </span>
+                       {translateCopy("Hoja de Vida")} </span>
                     <span className="text-sm font-semibold text-gray-800">
-                      {selectedEmployee.hasCv ? "Cargada ✅" : "No cargada"}
+                      {selectedEmployee.hasCv ? translateCopy("Cargada ✅") : translateCopy("No cargada")}
                     </span>
                   </div>
                   {selectedEmployee.hasCv && (
@@ -979,14 +1056,14 @@ const handleToggleStatus = async (emp: Employee) => {
                         disabled={loadingCv}
                         className="flex-1 text-xs font-bold text-blue-600 bg-blue-50 border border-blue-200 rounded-lg py-2 hover:bg-blue-100 transition-colors disabled:opacity-50"
                       >
-                        {loadingCv ? "Cargando..." : "👁️ Ver"}
+                        {loadingCv ? translateCopy("Cargando...") : translateCopy("👁️ Ver")}
                       </button>
                       <button
                         onClick={() => handleDownloadCv(selectedEmployee)}
                         disabled={loadingCv}
                         className="flex-1 text-xs font-bold text-gray-600 bg-gray-100 border border-gray-200 rounded-lg py-2 hover:bg-gray-200 transition-colors disabled:opacity-50"
                       >
-                        {loadingCv ? "Cargando..." : "⬇️ Descargar"}
+                        {loadingCv ? translateCopy("Cargando...") : translateCopy("⬇️ Descargar")}
                       </button>
                     </div>
                   )}
@@ -997,7 +1074,7 @@ const handleToggleStatus = async (emp: Employee) => {
         </Dialog>
         <Dialog
           isOpen={!!confirmDeactivate}
-          title="Suspender Empleado"
+          title={translateCopy("Suspender Empleado")}
           onClose={() => setConfirmDeactivate(null)}
         >
           <div className="flex items-start gap-4 mb-6">
@@ -1005,20 +1082,18 @@ const handleToggleStatus = async (emp: Employee) => {
               ⚠️
             </div>
             <p className="text-sm text-gray-600 pt-1.5">
-              ¿Seguro que deseas suspender a{" "}
+               {translateCopy("¿Seguro que deseas suspender a")}{" "}
               <strong className="text-[#111827]">
                 {confirmDeactivate?.name}
               </strong>
-              ? No podrá acceder al sistema hasta que sea reactivado.
-            </p>
+               {translateCopy("? No podrá acceder al sistema hasta que sea reactivado.")} </p>
           </div>
           <div className="flex justify-end gap-3">
             <button
               onClick={() => setConfirmDeactivate(null)}
               className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
             >
-              Cancelar
-            </button>
+               {translateCopy("Cancelar")} </button>
             <button
               onClick={async () => {
                 if (confirmDeactivate) {
@@ -1029,14 +1104,14 @@ const handleToggleStatus = async (emp: Employee) => {
               disabled={saving}
               className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
             >
-              {saving ? "Suspendiendo..." : "Suspender"}
+              {saving ? translateCopy("Suspendiendo...") : translateCopy("Suspender")}
             </button>
           </div>
         </Dialog>
 
         <Dialog
           isOpen={!!confirmReactivate}
-          title="Reactivar Empleado"
+          title={translateCopy("Reactivar Empleado")}
           onClose={() => setConfirmReactivate(null)}
         >
           <div className="flex items-start gap-4 mb-6">
@@ -1044,20 +1119,18 @@ const handleToggleStatus = async (emp: Employee) => {
               ✅
             </div>
             <p className="text-sm text-gray-600 pt-1.5">
-              ¿Deseas reactivar a{" "}
+               {translateCopy("¿Deseas reactivar a")}{" "}
               <strong className="text-[#111827]">
                 {confirmReactivate?.name}
               </strong>
-              ? Volverá a tener acceso al sistema.
-            </p>
+               {translateCopy("? Volverá a tener acceso al sistema.")} </p>
           </div>
           <div className="flex justify-end gap-3">
             <button
               onClick={() => setConfirmReactivate(null)}
               className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
             >
-              Cancelar
-            </button>
+               {translateCopy("Cancelar")} </button>
             <button
               onClick={async () => {
                 if (confirmReactivate) {
@@ -1068,7 +1141,57 @@ const handleToggleStatus = async (emp: Employee) => {
               disabled={saving}
               className="bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
             >
-              {saving ? "Reactivando..." : "Reactivar"}
+              {saving ? translateCopy("Reactivando...") : translateCopy("Reactivar")}
+            </button>
+          </div>
+        </Dialog>
+
+        <Dialog
+          isOpen={!!confirmDeleteEmployee}
+          title={translateCopy("Eliminar empleado permanentemente")}
+          subtitle={translateCopy("Esta acción no se puede deshacer")}
+          onClose={() => setConfirmDeleteEmployee(null)}
+        >
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-red-100 text-xl text-red-700">
+              ⚠️
+            </div>
+            <div className="space-y-2 text-sm text-gray-600">
+              <p>
+                {translateCopy("¿Seguro que deseas eliminar a")} {" "}
+                <strong className="text-[#111827]">
+                  {confirmDeleteEmployee?.name} {confirmDeleteEmployee?.lastName ?? ""}
+                </strong>
+                {translateCopy("? Se borrarán su cuenta, datos personales, turnos, hoja de vida y entregas asociadas.")}
+              </p>
+              <p>
+                {translateCopy("Los pedidos y pagos anteriores se conservarán como historial, sin asociarlos a este empleado. Si tiene pedidos o entregas activos, primero debes finalizarlos o reasignarlos.")}
+              </p>
+              <p>
+                {translateCopy("Si la cuenta también existe como cliente, se conservará para proteger esos datos; en ese caso puedes suspender al empleado.")}
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => setConfirmDeleteEmployee(null)}
+              disabled={saving}
+              className="rounded-xl px-6 py-2.5 text-sm font-bold text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-50"
+            >
+              {translateCopy("Cancelar")}
+            </button>
+            <button
+              onClick={() => {
+                if (confirmDeleteEmployee) {
+                  void handlePermanentDelete(confirmDeleteEmployee);
+                }
+              }}
+              disabled={saving}
+              className="rounded-xl bg-red-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-red-700 disabled:opacity-50"
+            >
+              {saving
+                ? translateCopy("Eliminando...")
+                : translateCopy("Eliminar definitivamente")}
             </button>
           </div>
         </Dialog>
@@ -1081,7 +1204,7 @@ const handleToggleStatus = async (emp: Employee) => {
         />
         <Dialog
           isOpen={!!justCreatedEmployee}
-          title="Empleado registrado"
+          title={translateCopy("Empleado registrado")}
           onClose={() => setJustCreatedEmployee(null)}
         >
           <div className="flex items-start gap-4 mb-6">
@@ -1092,9 +1215,7 @@ const handleToggleStatus = async (emp: Employee) => {
               <strong className="text-[#111827]">
                 {justCreatedEmployee?.name}
               </strong>{" "}
-              todavía no puede acceder al sistema — necesita al menos un turno
-              asignado. ¿Quieres asignarle uno ahora?
-            </p>
+               {translateCopy("todavía no puede acceder al sistema — necesita al menos un turno asignado. ¿Quieres asignarle uno ahora?")} </p>
           </div>
           <div className="flex justify-end gap-3">
             <button
@@ -1104,21 +1225,23 @@ const handleToggleStatus = async (emp: Employee) => {
               }}
               className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
             >
-              Más tarde
-            </button>
+               {translateCopy("Más tarde")} </button>
             <button
               onClick={() => {
                 setIsFormOpen(false);
                 if (justCreatedEmployee) {
                   const employeeId = justCreatedEmployee.id;
                   setJustCreatedEmployee(null);
-                  router.push(`/schedules?employeeId=${employeeId}`);
+                  rememberNavigationTarget(
+                    pendingNavigationKeys.scheduleEmployee,
+                    employeeId,
+                  );
+                  router.push(ROUTES.schedules);
                 }
               }}
               className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm"
             >
-              Asignar turno ahora
-            </button>
+               {translateCopy("Asignar turno ahora")} </button>
           </div>
         </Dialog>
       </div>

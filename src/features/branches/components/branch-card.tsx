@@ -1,5 +1,7 @@
 "use client";
 
+import { translateCopy } from "@/config/copy-translations";
+import { useTranslation } from "react-i18next";
 import type { Branch } from "../types/branch.types";
 
 interface BranchCardProps {
@@ -15,6 +17,7 @@ export const BranchCard = ({
   onEdit,
   onDelete,
 }: BranchCardProps) => {
+  useTranslation();
   return (
     <div className="border border-gray-200 rounded-xl bg-white p-6 hover:border-gray-300 transition-colors">
       <div className="flex items-start justify-between mb-4">
@@ -27,7 +30,7 @@ export const BranchCard = ({
               {branch.name}
             </h3>
             <p className="text-xs text-gray-400">
-              {branch.address || "Sin dirección"}
+              {branch.address || translateCopy("Sin dirección")}
             </p>
           </div>
         </div>
@@ -39,15 +42,15 @@ export const BranchCard = ({
               : "bg-gray-50 text-gray-400"
           }`}
         >
-          {branch.status ? "Activa" : "Inactiva"}
+          {translateCopy(branch.status ? "Activa" : "Inactiva")}
         </span>
       </div>
 
       <div className="flex items-center justify-between text-xs text-gray-500 border-t border-gray-100 pt-3 mb-4">
-        <span>{branch.phone || "Sin teléfono"}</span>
+        <span>{branch.phone || translateCopy("Sin teléfono")}</span>
         <span>
           {branch.employeeCount}{" "}
-          {branch.employeeCount === 1 ? "empleado" : "empleados"}
+          {branch.employeeCount === 1 ? translateCopy("empleado") : translateCopy("empleados")}
         </span>
       </div>
 
@@ -56,14 +59,12 @@ export const BranchCard = ({
           onClick={() => onEdit(branch)}
           className="flex-1 py-2 rounded-lg text-xs font-semibold text-[#111827] border border-gray-200 hover:bg-gray-50 transition-colors"
         >
-          Editar
-        </button>
+           {translateCopy("Editar")} </button>
         <button
           onClick={() => onDelete(branch)}
           className="flex-1 py-2 rounded-lg text-xs font-semibold text-[#EA1D2C] border border-red-100 hover:bg-red-50 transition-colors"
         >
-          Eliminar
-        </button>
+           {translateCopy("Eliminar")} </button>
       </div>
     </div>
   );

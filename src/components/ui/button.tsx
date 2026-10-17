@@ -1,3 +1,5 @@
+import { translateCopy } from "@/config/copy-translations";
+import { useTranslation } from "react-i18next";
 import React from 'react';
 
 type ButtonProps = {
@@ -15,6 +17,7 @@ export const Button = ({
   className = '',
   ...props
 }: ButtonProps) => {
+  useTranslation();
   return (
     <button
       disabled={isLoading}
@@ -50,7 +53,7 @@ export const Button = ({
 
           <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
 
-          <span>Cargando...</span>
+          <span>{translateCopy("Cargando...")}</span>
 
         </div>
       ) : (
