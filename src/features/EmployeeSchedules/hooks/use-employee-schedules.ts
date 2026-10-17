@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "@/features/auth/hooks/use-auth";
+import { useAdminDataChanged } from "@/features/Dashboard/hooks/use-admin-data-changed";
+import { useRealtimeConnectionStatus } from "@/features/Dashboard/hooks/use-realtime-events";
 import { employeeScheduleService } from "../services/employee-schedule.service";
 import type {
   EmployeeSchedule,
@@ -9,27 +12,35 @@ import type {
 } from "../types/employee-schedule.types";
 
 export function useEmployeeSchedules(branchId: number | null) {
+  const { session } = useAuth();
+  const userId = session?.userId ?? null;
+  const realtimeStatus = useRealtimeConnectionStatus(userId);
   const [schedules, setSchedules] = useState<EmployeeSchedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const fetchSchedules = useCallback(async () => {
+  const fetchSchedules = useCallback(async (silent = false) => {
     if (!branchId) {
       setSchedules([]);
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setError("");
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const data = await employeeScheduleService.getByBranch(branchId);
       setSchedules(data);
+      setError("");
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No se pudieron cargar los turnos",
-      );
+      if (!silent) {
+        setError(
+          err instanceof Error ? err.message : "No se pudieron cargar los turnos",
+        );
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [branchId]);
 
@@ -37,9 +48,19 @@ export function useEmployeeSchedules(branchId: number | null) {
     fetchSchedules();
   }, [fetchSchedules]);
 
+  const refreshAfterChange = useCallback(() => {
+    void fetchSchedules(true);
+  }, [fetchSchedules]);
+  useAdminDataChanged(
+    userId,
+    ["EmployeeSchedules", "Employees"],
+    refreshAfterChange,
+    refreshAfterChange,
+  );
+
   const createSchedule = async (payload: CreateEmployeeSchedulePayload) => {
     await employeeScheduleService.create(payload);
-    await fetchSchedules();
+    if (realtimeStatus !== "connected") await fetchSchedules(true);
   };
 
   const updateSchedule = async (
@@ -47,12 +68,12 @@ export function useEmployeeSchedules(branchId: number | null) {
     payload: UpdateEmployeeSchedulePayload,
   ) => {
     await employeeScheduleService.update(id, payload);
-    await fetchSchedules();
+    if (realtimeStatus !== "connected") await fetchSchedules(true);
   };
 
   const deleteSchedule = async (id: number) => {
     await employeeScheduleService.remove(id);
-    await fetchSchedules();
+    if (realtimeStatus !== "connected") await fetchSchedules(true);
   };
 
   return {

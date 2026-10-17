@@ -1,33 +1,46 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { categoryService } from "../services/category.service";
 import type {
   Category,
   CreateCategoryPayload,
   UpdateCategoryPayload,
 } from "../types/category.types";
+import { useAuth } from "@/features/auth/hooks/use-auth";
+import {
+  useRealtimeConnectionStatus,
+  useRealtimeEvents,
+} from "@/features/Dashboard/hooks/use-realtime-events";
 
 export function useCategories() {
+  const { session } = useAuth();
+  const userId = session?.userId ?? null;
+  const realtimeStatus = useRealtimeConnectionStatus(userId);
+
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const hasLoadedRef = useRef(false);
 
-  const fetchCategories = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const fetchCategories = useCallback(async (silent = false) => {
+    if (!hasLoadedRef.current) setLoading(true);
+    if (!silent) setError("");
     try {
       const data = await categoryService.getAll();
       const sorted = [...data].sort((a, b) => b.id - a.id);
       setCategories(sorted);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "No se pudieron cargar las categorías",
-      );
+      if (!silent) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudieron cargar las categorías",
+        );
+      }
     } finally {
       setLoading(false);
+      hasLoadedRef.current = true;
     }
   }, []);
 
@@ -35,19 +48,30 @@ export function useCategories() {
     fetchCategories();
   }, [fetchCategories]);
 
+  const refreshImmediately = useCallback(() => {
+    void fetchCategories(true);
+  }, [fetchCategories]);
+
+  useRealtimeEvents(
+    userId,
+    ["ProductsChanged"],
+    refreshImmediately,
+    refreshImmediately,
+  );
+
   const createCategory = async (payload: CreateCategoryPayload) => {
     await categoryService.create(payload);
-    await fetchCategories();
+    if (realtimeStatus !== "connected") await fetchCategories(true);
   };
 
   const updateCategory = async (id: number, payload: UpdateCategoryPayload) => {
     await categoryService.update(id, payload);
-    await fetchCategories();
+    if (realtimeStatus !== "connected") await fetchCategories(true);
   };
 
   const deleteCategory = async (id: number) => {
     await categoryService.remove(id);
-    await fetchCategories();
+    if (realtimeStatus !== "connected") await fetchCategories(true);
   };
 
   return {
@@ -57,6 +81,6 @@ export function useCategories() {
     createCategory,
     updateCategory,
     deleteCategory,
-    refetch: fetchCategories,
+    refetch: () => fetchCategories(),
   };
 }

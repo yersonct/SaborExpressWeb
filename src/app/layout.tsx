@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Panel de Administración",
+  title: "SaborExpress",
   description: "Panel de administración de SaborExpress.",
 };
 

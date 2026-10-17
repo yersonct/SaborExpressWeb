@@ -1,6 +1,8 @@
 "use client";
 
+import { translateCopy } from "@/config/copy-translations";
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Eye, EyeOff } from "lucide-react";
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
@@ -15,10 +17,11 @@ export const Input = ({
   type = "text",
   ...props
 }: InputProps) => {
+  useTranslation();
   const [showPassword, setShowPassword] = useState(false);
 
   const isPassword = type === "password";
-  const resolvedType = isPassword ? (showPassword ? "password" : "text") : type;
+  const resolvedType = isPassword ? (showPassword ? "text" : "password") : type;
 
   return (
     <div className="flex flex-col gap-2 w-full">
@@ -60,9 +63,9 @@ export const Input = ({
           <button
             type="button"
             onClick={() => setShowPassword((prev) => !prev)}
-            tabIndex={-1}
+            aria-pressed={showPassword}
             aria-label={
-              showPassword ?  "Mostrar contraseña" :"Ocultar contraseña" 
+              showPassword ? translateCopy("Ocultar contraseña") : translateCopy("Mostrar contraseña")
             }
             className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#EA1D2C] transition-colors"
           >
@@ -76,7 +79,7 @@ export const Input = ({
       </div>
 
       {error && (
-        <span className="text-sm text-[#EF4444] font-medium">{error}</span>
+        <span className="text-sm text-[#EF4444] font-medium">{translateCopy(error)}</span>
       )}
     </div>
   );

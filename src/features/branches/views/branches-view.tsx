@@ -1,6 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
+import { translateCopy } from "@/config/copy-translations";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { NotificationModal } from "@/components/ui/modal";
 import { useAuth } from "@/features/auth/hooks/use-auth";
@@ -40,10 +43,15 @@ export const BranchesView = () => {
 
 // Vista completa para el Gerente: lista, crea, edita y elimina sedes
 const BranchesManagerView = () => {
+  const { t } = useTranslation();
   const { branches, loading, error, createBranch, updateBranch, deleteBranch } =
     useBranches(true);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useRememberedUiState<number>("branches", "page", 1);
   const ITEMS_PER_PAGE = 6;
+  const [search, setSearch] = useRememberedUiState<string>("branches", "search", "");
+  const [statusFilter, setStatusFilter] = useRememberedUiState<
+    "all" | "active" | "inactive"
+  >("branches", "status", "all");
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
@@ -95,18 +103,18 @@ const BranchesManagerView = () => {
       if (editingBranch) {
         await updateBranch(editingBranch.id, { name, address, phone, status });
         setNotify({
-          message: "Sede actualizada correctamente",
+          message: translateCopy("Sede actualizada correctamente"),
           type: "success",
         });
       } else {
         await createBranch({ name, address, phone });
-        setNotify({ message: "Sede creada correctamente", type: "success" });
+        setNotify({ message: translateCopy("Sede creada correctamente"), type: "success" });
       }
       setIsFormOpen(false);
     } catch (err) {
       setNotify({
         message:
-          err instanceof Error ? err.message : "No se pudo guardar la sede",
+          err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo guardar la sede"),
         type: "error",
       });
     } finally {
@@ -119,12 +127,12 @@ const BranchesManagerView = () => {
     setSaving(true);
     try {
       await deleteBranch(confirmDelete.id);
-      setNotify({ message: "Sede eliminada correctamente", type: "success" });
+      setNotify({ message: translateCopy("Sede eliminada correctamente"), type: "success" });
       setConfirmDelete(null);
     } catch (err) {
       setNotify({
         message:
-          err instanceof Error ? err.message : "No se pudo eliminar la sede",
+          err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo eliminar la sede"),
         type: "error",
       });
       setConfirmDelete(null);
@@ -132,35 +140,77 @@ const BranchesManagerView = () => {
       setSaving(false);
     }
   };
-  const totalPages = Math.ceil(branches.length / ITEMS_PER_PAGE);
+  const filteredBranches = branches.filter((b) => {
+    const matchesSearch = `${b.name} ${b.address ?? ""} ${b.phone ?? ""}`
+      .toLowerCase()
+      .includes(search.trim().toLowerCase());
+    const matchesStatus =
+      statusFilter === "all" ||
+      (statusFilter === "active" ? b.status : !b.status);
+    return matchesSearch && matchesStatus;
+  });
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredBranches.length / ITEMS_PER_PAGE),
+  );
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const paginatedBranches = branches.slice(
+  const paginatedBranches = filteredBranches.slice(
     startIndex,
     startIndex + ITEMS_PER_PAGE,
   );
+
+  // Si al eliminar o filtrar la página actual deja de existir, retrocede
+  useEffect(() => {
+    if (!loading && currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages, loading]);
   return (
     <>
       <div className="space-y-6 pb-10">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-extrabold text-[#111827] tracking-tight">
-              Sedes
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#111827] tracking-tight">
+              {t("pageTitles.branches")}
             </h1>
             <p className="text-gray-500 mt-1">
-              Administra las sedes registradas en el sistema.
-            </p>
+               {translateCopy("Administra las sedes registradas en el sistema.")} </p>
             <p className="text-sm font-semibold text-[#EA1D2C] mt-2">
               {branches.length}{" "}
-              {branches.length === 1 ? "sede registrada" : "sedes registradas"}
+              {branches.length === 1 ? translateCopy("sede registrada") : translateCopy("sedes registradas")}
             </p>
           </div>
           <button
             onClick={openCreate}
-            className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold py-3 px-6 rounded-xl text-sm transition-all duration-200 shadow-[0_8px_20px_-6px_rgba(234,29,44,0.5)] hover:shadow-[0_12px_25px_-6px_rgba(234,29,44,0.7)] hover:-translate-y-0.5 active:scale-95 flex items-center gap-2"
+            className="w-full sm:w-auto justify-center bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold py-3 px-6 rounded-xl text-sm transition-all duration-200 shadow-[0_8px_20px_-6px_rgba(234,29,44,0.5)] hover:shadow-[0_12px_25px_-6px_rgba(234,29,44,0.7)] hover:-translate-y-0.5 active:scale-95 flex items-center gap-2"
           >
-            <span className="text-lg leading-none">+</span> Nueva Sede
-          </button>
+            <span className="text-lg leading-none">+</span>  {translateCopy("Nueva Sede")} </button>
         </div>
+
+        {branches.length > 0 && (
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder={translateCopy("Buscar por nombre, dirección o teléfono...")}
+              className={`${inputClass} sm:max-w-sm`}
+            />
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value as "all" | "active" | "inactive");
+                setCurrentPage(1);
+              }}
+              className={`${inputClass} sm:w-48`}
+            >
+              <option value="all">{translateCopy("Todas")}</option>
+              <option value="active">{translateCopy("Activas")}</option>
+              <option value="inactive">{translateCopy("Inactivas")}</option>
+            </select>
+          </div>
+        )}
 
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -174,36 +224,41 @@ const BranchesManagerView = () => {
           </div>
         ) : error ? (
           <div className="bg-red-50 border border-red-100 rounded-2xl p-6 text-sm text-red-600">
-            {error}
+            {translateCopy(error)}
           </div>
         ) : branches.length === 0 ? (
-          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-16 text-center animate-[popIn_0.4s_ease-out]">
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 text-center animate-[popIn_0.4s_ease-out] sm:p-16">
             <div className="text-5xl mb-4">🏢</div>
             <p className="text-gray-400 font-medium">
-              No hay sedes registradas todavía.
-            </p>
+               {translateCopy("No hay sedes registradas todavía.")} </p>
           </div>
         ) : (
           <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full min-w-[720px] text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-50/50 text-xs text-gray-500 uppercase tracking-wider">
-                    <th className="px-5 py-3 font-semibold">Sede</th>
-                    <th className="px-5 py-3 font-semibold">Dirección</th>
-                    <th className="px-5 py-3 font-semibold">Teléfono</th>
+                    <th className="px-5 py-3 font-semibold">{translateCopy("Sede")}</th>
+                    <th className="px-5 py-3 font-semibold">{translateCopy("Dirección")}</th>
+                    <th className="px-5 py-3 font-semibold">{translateCopy("Teléfono")}</th>
                     <th className="px-5 py-3 font-semibold text-center">
-                      Empleados
-                    </th>
+                       {translateCopy("Empleados")} </th>
                     <th className="px-5 py-3 font-semibold text-center">
-                      Estado
-                    </th>
+                       {translateCopy("Estado")} </th>
                     <th className="px-5 py-3 font-semibold text-right">
-                      Acciones
-                    </th>
+                       {translateCopy("Acciones")} </th>
                   </tr>
                 </thead>
                 <tbody className="text-sm divide-y divide-gray-100">
+                  {paginatedBranches.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-5 py-10 text-center text-gray-400"
+                      >
+                         {translateCopy("Ninguna sede coincide con la búsqueda.")} </td>
+                    </tr>
+                  )}
                   {paginatedBranches.map((branch) => (
                     <tr
                       key={branch.id}
@@ -237,7 +292,7 @@ const BranchesManagerView = () => {
                               : "bg-gray-100 text-gray-500 border-gray-200"
                           }`}
                         >
-                          {branch.status ? "Activa" : "Inactiva"}
+                          {translateCopy(branch.status ? "Activa" : "Inactiva")}
                         </span>
                       </td>
                       <td className="px-5 py-4 text-right">
@@ -249,8 +304,7 @@ const BranchesManagerView = () => {
                             }}
                             className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
                           >
-                            Editar
-                          </button>
+                             {translateCopy("Editar")} </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -258,8 +312,7 @@ const BranchesManagerView = () => {
                             }}
                             className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 border border-red-200 hover:bg-red-50 transition-colors"
                           >
-                            Eliminar
-                          </button>
+                             {translateCopy("Eliminar")} </button>
                         </div>
                       </td>
                     </tr>
@@ -269,22 +322,21 @@ const BranchesManagerView = () => {
             </div>
 
             {totalPages > 1 && (
-              <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100">
-                <p className="text-xs text-gray-500">
-                  Mostrando {startIndex + 1}–
-                  {Math.min(startIndex + ITEMS_PER_PAGE, branches.length)} de{" "}
-                  {branches.length}
+              <div className="flex flex-col gap-3 border-t border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                <p className="break-words text-xs text-gray-500">
+                   {translateCopy("Mostrando")} {startIndex + 1}–
+                  {Math.min(startIndex + ITEMS_PER_PAGE, filteredBranches.length)}  {translateCopy("de")}{" "}
+                  {filteredBranches.length}
                 </p>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
                     className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    Anterior
-                  </button>
+                     {translateCopy("Anterior")} </button>
                   <span className="px-3 py-1.5 text-xs font-bold text-gray-500">
-                    Página {currentPage} de {totalPages}
+                     {translateCopy("Página")} {currentPage}  {translateCopy("de")} {totalPages}
                   </span>
                   <button
                     onClick={() =>
@@ -293,8 +345,7 @@ const BranchesManagerView = () => {
                     disabled={currentPage === totalPages}
                     className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    Siguiente
-                  </button>
+                     {translateCopy("Siguiente")} </button>
                 </div>
               </div>
             )}
@@ -305,62 +356,61 @@ const BranchesManagerView = () => {
       {/* Formulario crear/editar */}
       <Dialog
         isOpen={isFormOpen}
-        title={editingBranch ? "Editar Sede" : "Nueva Sede"}
+        title={editingBranch ? translateCopy("Editar Sede") : translateCopy("Nueva Sede")}
         subtitle={
           editingBranch
-            ? `Actualizando "${editingBranch.name}"`
-            : "Registra una nueva sede en el sistema"
+            ? `${translateCopy("Actualizando")} "${editingBranch.name}"`
+            : translateCopy("Registra una nueva sede en el sistema")
         }
         onClose={() => setIsFormOpen(false)}
       >
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div>
-            <label className={labelClass}>Nombre</label>
+            <label className={labelClass}>{translateCopy("Nombre")}</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className={inputClass}
-              placeholder="Ej: Sede Norte"
+              placeholder={translateCopy("Ej: Sede Norte")}
             />
             {formErrors.name && (
-              <p className="text-xs text-red-500 mt-1">{formErrors.name}</p>
+              <p className="text-xs text-red-500 mt-1">{translateCopy(formErrors.name)}</p>
             )}
           </div>
           <div>
-            <label className={labelClass}>Dirección</label>
+            <label className={labelClass}>{translateCopy("Dirección")}</label>
             <input
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               className={inputClass}
-              placeholder="Ej: Calle 10 # 5-20"
+              placeholder={translateCopy("Ej: Calle 10 # 5-20")}
             />
             {formErrors.address && (
-              <p className="text-xs text-red-500 mt-1">{formErrors.address}</p>
+              <p className="text-xs text-red-500 mt-1">{translateCopy(formErrors.address)}</p>
             )}
           </div>
           <div>
-            <label className={labelClass}>Teléfono</label>
+            <label className={labelClass}>{translateCopy("Teléfono")}</label>
             <input
               type="text"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               className={inputClass}
-              placeholder="Ej: 3001234567"
+              placeholder={translateCopy("Ej: 3001234567")}
             />
             {formErrors.phone && (
-              <p className="text-xs text-red-500 mt-1">{formErrors.phone}</p>
+              <p className="text-xs text-red-500 mt-1">{translateCopy(formErrors.phone)}</p>
             )}
           </div>
 
           {editingBranch && (
             <div className="flex items-center justify-between pt-3 border-t border-gray-100">
               <div>
-                <p className="text-sm font-bold text-[#111827]">Sede activa</p>
+                <p className="text-sm font-bold text-[#111827]">{translateCopy("Sede activa")}</p>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  Determina si la sede opera actualmente.
-                </p>
+                   {translateCopy("Determina si la sede opera actualmente.")} </p>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
@@ -380,14 +430,13 @@ const BranchesManagerView = () => {
               onClick={() => setIsFormOpen(false)}
               className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
             >
-              Cancelar
-            </button>
+               {translateCopy("Cancelar")} </button>
             <button
               type="submit"
               disabled={saving}
               className="bg-[#EA1D2C] hover:bg-[#d11a28] text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-all shadow-[0_8px_20px_-6px_rgba(234,29,44,0.5)] hover:shadow-[0_12px_25px_-6px_rgba(234,29,44,0.7)] disabled:opacity-50"
             >
-              {saving ? "Guardando..." : "Guardar"}
+              {saving ? translateCopy("Guardando...") : translateCopy("Guardar")}
             </button>
           </div>
         </form>
@@ -396,7 +445,7 @@ const BranchesManagerView = () => {
       {/* Confirmación de borrado */}
       <Dialog
         isOpen={!!confirmDelete}
-        title="Eliminar Sede"
+        title={translateCopy("Eliminar Sede")}
         onClose={() => setConfirmDelete(null)}
       >
         <div className="flex items-start gap-4 mb-6">
@@ -404,24 +453,21 @@ const BranchesManagerView = () => {
             ⚠️
           </div>
           <p className="text-sm text-gray-600 pt-1.5">
-            ¿Seguro que deseas eliminar la sede{" "}
-            <strong className="text-[#111827]">{confirmDelete?.name}</strong>?
-            Esta acción no se puede deshacer.
-          </p>
+             {translateCopy("¿Seguro que deseas eliminar la sede")}{" "}
+            <strong className="text-[#111827]">{confirmDelete?.name}</strong>{translateCopy("? Esta acción no se puede deshacer.")} </p>
         </div>
         <div className="flex justify-end gap-3">
           <button
             onClick={() => setConfirmDelete(null)}
             className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
           >
-            Cancelar
-          </button>
+             {translateCopy("Cancelar")} </button>
           <button
             onClick={handleDelete}
             disabled={saving}
             className="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
           >
-            {saving ? "Eliminando..." : "Eliminar"}
+            {saving ? translateCopy("Eliminando...") : translateCopy("Eliminar")}
           </button>
         </div>
       </Dialog>

@@ -23,6 +23,7 @@ export interface Payment {
   paidAt: string;
   wompiReference: string | null;
   wompiTransactionId: string | null;
+  refundReason?: string | null;
 }
 
 export interface PaymentFilter {

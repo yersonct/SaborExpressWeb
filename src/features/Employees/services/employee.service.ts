@@ -89,6 +89,10 @@ export const employeeService = {
     await http.delete(`/Employees/${id}`);
   },
 
+  deletePermanently: async (id: number): Promise<void> => {
+    await http.delete(`/Employees/${id}/permanent`);
+  },
+
   // GET /api/Employees/{id}/cv — descarga el archivo
   downloadCv: async (id: number): Promise<Blob> => {
     const { data } = await http.get(`/Employees/${id}/cv`, {
