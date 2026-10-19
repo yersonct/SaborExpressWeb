@@ -25,7 +25,26 @@ function toBackendPayload(payload: CreateEmployeeSchedulePayload) {
   };
 }
 
+export type WeekEmailResult = {
+  sent: number;
+  skipped: number;
+  failed: number;
+  employeesWithShifts: number;
+};
+
 export const employeeScheduleService = {
+  // Enviar una sola notificación por empleado con sus turnos de la semana y sede.
+  sendWeekEmails: async (branchId: number, fromDate: string, toDate: string): Promise<WeekEmailResult> => {
+    const { data } = await http.post<WeekEmailResult>(
+      `/employee-schedules/branch/${branchId}/email-week`,
+      { fromDate, toDate },
+    );
+    return data;
+  },
+  // Notificación por correo de un día o de una semana ya planificada.
+  sendEmail: async (employeeId: number, fromDate: string, toDate: string): Promise<void> => {
+    await http.post(`/employee-schedules/employee/${employeeId}/email`, { fromDate, toDate });
+  },
   getByEmployee: async (employeeId: number): Promise<EmployeeSchedule[]> => {
     const { data } = await http.get<EmployeeSchedule[]>(
       `/employee-schedules/employee/${employeeId}`,

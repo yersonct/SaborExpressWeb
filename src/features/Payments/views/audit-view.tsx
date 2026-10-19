@@ -11,6 +11,7 @@ import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useBranches } from "@/features/branches/hooks/use-branches";
 import { useMyBranch } from "@/features/branches/hooks/use-my-branch";
 import { usePayments } from "@/features/Payments/hooks/use-payments";
+import { CashClosuresPanel } from "@/features/Payments/components/cash-closures-panel";
 import {
   PaymentMethod,
   PaymentStatus,
@@ -336,6 +337,12 @@ export const AuditView = () => {
             </div>
           ))}
         </div>
+
+        {/* Los cierres son permanentes y no se recalculan con los reembolsos. */}
+        {paymentsEnabled && (
+          <CashClosuresPanel branchId={effectiveBranchId}
+            fromDate={fromDate.slice(0, 10)} toDate={toDate.slice(0, 10)} />
+        )}
 
         {/* Tabla */}
         <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden flex-1">
