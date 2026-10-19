@@ -558,10 +558,16 @@ const { history: statusHistory, loading: loadingHistory } =
                   <span>
                     {selectedOrder.taxIncludedInPrice
                       ? t("orderBreakdown.taxOnProducts")
-                      : translateCopy("Impuesto registrado")}
+                      : translateCopy("Impoconsumo adicional")}
                     {selectedOrder.taxRate > 0 ? ` (${selectedOrder.taxRate}%)` : ""}
                   </span>
                   <span>{formatCurrency(selectedOrder.tax)}</span>
+                </div>
+              )}
+              {selectedOrder.deliveryFee > 0 && (
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>{translateCopy("Domicilio")}</span>
+                  <span>{formatCurrency(selectedOrder.deliveryFee)}</span>
                 </div>
               )}
               <div className="flex justify-between text-base font-black text-gray-900 pt-2 border-t border-gray-200">
