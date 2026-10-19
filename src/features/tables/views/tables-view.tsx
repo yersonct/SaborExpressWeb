@@ -11,7 +11,8 @@ import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useBranches } from "@/features/branches/hooks/use-branches";
 import { useMyBranch } from "@/features/branches/hooks/use-my-branch";
 import { useTables } from "../hooks/use-tables";
-import { TableStatus, type Table } from "../types/table.types";
+import { TableStatus, type Table, type TableReleaseReview } from "../types/table.types";
+import { tableService } from "../services/table.service";
 import { useOrders } from "@/features/Order/hooks/use-orders";
 import { useOrderDetail } from "@/features/Order/hooks/use-order-details";
 import { useOrderStatusHistory } from "@/features/Order/hooks/use-order-status-history";
@@ -102,6 +103,7 @@ const {
   updateTable,
   updateStatus,
   deleteTable,
+  refetch: refetchTables,
 } = useTables(branchId, branches);
 
 // Cruce con Orders: qué mesa tiene un pedido activo ahora mismo y su total.
@@ -115,7 +117,12 @@ const activeOrderByTableId = useMemo(() => {
       (o) =>
         o.tableId !== null &&
         o.status !== OrderStatus.Delivered &&
-        o.status !== OrderStatus.Cancelled,
+        o.status !== OrderStatus.Cancelled &&
+        tables.some((tb) => tb.id === o.tableId &&
+          tb.status === TableStatus.Occupied &&
+          (tb.currentSessionId
+            ? o.tableSessionId === tb.currentSessionId
+            : o.tableSessionId == null)),
     )
     .forEach((o) => {
       // Si por algún motivo hay más de un pedido activo en la misma mesa,
@@ -123,7 +130,68 @@ const activeOrderByTableId = useMemo(() => {
       if (!map.has(o.tableId!)) map.set(o.tableId!, o);
     });
   return map;
-}, [orders]);
+}, [orders, tables]);
+
+  // La lista de ocupaciones anteriores se obtiene del servidor; ninguna fecha
+  // se infiere desde table.createdAt, que representa creación de la mesa.
+  const [previousReviews, setPreviousReviews] = useState<TableReleaseReview[]>([]);
+  const [releaseReview, setReleaseReview] = useState<TableReleaseReview | null>(null);
+  const [releaseLoading, setReleaseLoading] = useState(false);
+  const [releaseSaving, setReleaseSaving] = useState(false);
+  const [releaseReason, setReleaseReason] = useState("");
+  const [releaseError, setReleaseError] = useState("");
+
+  useEffect(() => {
+    let current = true;
+    if (!branchId || !(isGerente || isAdmin)) {
+      setPreviousReviews([]);
+      return;
+    }
+    void tableService.getPreviousReleaseReviews(branchId)
+      .then((reviews) => { if (current) setPreviousReviews(reviews); })
+      .catch(() => { if (current) setPreviousReviews([]); });
+    return () => { current = false; };
+  }, [branchId, isAdmin, isGerente, tables]);
+
+  const openReleaseReview = async (table: Table) => {
+    setReleaseLoading(true);
+    setReleaseError("");
+    setReleaseReason("");
+    try {
+      const review = await tableService.getReleaseReview(table.id);
+      setReleaseReview(review);
+    } catch (err) {
+      setNotify({ message: err instanceof Error ? err.message : "No se pudo comprobar la mesa", type: "error" });
+    } finally {
+      setReleaseLoading(false);
+    }
+  };
+
+  const confirmPreviousRelease = async () => {
+    if (!releaseReview || releaseSaving) return;
+    const administrative = !releaseReview.canReleaseNormally;
+    if (!releaseReview.isOccupied || (!releaseReview.isPreviousDay && !releaseReview.isOrphan)) return;
+    if (administrative && releaseReason.trim().length < 12) {
+      setReleaseError("Explica el motivo del cierre administrativo (mínimo 12 caracteres).");
+      return;
+    }
+    setReleaseSaving(true);
+    setReleaseError("");
+    try {
+      await tableService.releasePrevious(releaseReview.tableId, {
+        expectedSessionId: releaseReview.currentSessionId,
+        administrative,
+        reason: administrative ? releaseReason.trim() : undefined,
+      });
+      setReleaseReview(null);
+      setNotify({ message: "Mesa liberada. Los pedidos y sus pagos permanecen en el historial.", type: "success" });
+      await refetchTables();
+    } catch (err) {
+      setReleaseError(err instanceof Error ? err.message : "No se pudo liberar la mesa.");
+    } finally {
+      setReleaseSaving(false);
+    }
+  };
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingTable, setEditingTable] = useState<Table | null>(null);
@@ -246,6 +314,65 @@ const activeOrderByTableId = useMemo(() => {
 
   return (
     <>
+      <Dialog
+        isOpen={!!releaseReview}
+        title={releaseReview ? `Revisar mesa ${releaseReview.tableNumber}` : "Revisar mesa"}
+        onClose={() => { if (!releaseSaving) setReleaseReview(null); }}
+      >
+        {releaseReview && (
+          <div className="space-y-4 text-sm text-gray-800">
+            {!releaseReview.isPreviousDay && !releaseReview.isOrphan ? (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                Es una sesión activa de hoy. No se permite liberarla por esta herramienta.
+              </p>
+            ) : (
+              <>
+                <p>{releaseReview.isOrphan
+                  ? "No se encontraron pedidos vinculados a esta ocupación. Comprueba físicamente que nadie utiliza la mesa antes del cierre administrativo."
+                  : `Se encontraron ${releaseReview.orders.length} pedidos asociados a la sesión previa.`}
+                  {" "}Los pedidos y pagos existentes se conservarán.</p>
+                <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-200 p-3 space-y-2">
+                  {releaseReview.orders.map((order) => (
+                    <p key={order.orderId}>
+                      Pedido #{order.orderId} — {order.isPaid ? "Pagado" : "Pago pendiente"} · {order.isDelivered ? "Entregado" : "Entrega pendiente"}
+                    </p>
+                  ))}
+                </div>
+                {releaseReview.outstandingAmount > 0 && (
+                  <p className="rounded-xl bg-amber-50 p-3 font-semibold text-amber-900">
+                    Saldo pendiente: {formatMoney(releaseReview.outstandingAmount)}. Liberar la mesa no lo cobra ni lo cancela.
+                  </p>
+                )}
+                {!releaseReview.canReleaseNormally && (
+                  <div>
+                    <label className={labelClass} htmlFor="table-release-reason">Motivo obligatorio del cierre administrativo</label>
+                    <textarea
+                      id="table-release-reason"
+                      rows={3}
+                      maxLength={500}
+                      className={inputClass}
+                      value={releaseReason}
+                      onChange={(e) => setReleaseReason(e.target.value)}
+                      placeholder="Explica por qué debe liberarse esta mesa pese a los pedidos pendientes"
+                    />
+                  </div>
+                )}
+              </>
+            )}
+            {releaseError && <p role="alert" className="text-red-700">{releaseError}</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setReleaseReview(null)} disabled={releaseSaving}
+                className="rounded-lg border border-gray-200 px-4 py-2">Cancelar</button>
+              {(releaseReview.isPreviousDay || releaseReview.isOrphan) && (
+                <button type="button" onClick={() => void confirmPreviousRelease()} disabled={releaseSaving}
+                  className="rounded-lg bg-[#EA1D2C] px-4 py-2 font-bold text-white disabled:opacity-50">
+                  {releaseSaving ? "Guardando..." : releaseReview.canReleaseNormally ? "Liberar mesa anterior" : "Confirmar cierre administrativo"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </Dialog>
       <div className="space-y-6 pb-10">
         <div className="flex items-center justify-between">
           <div>
@@ -409,6 +536,19 @@ const activeOrderByTableId = useMemo(() => {
                         <span className="text-xs font-black">
                           {formatMoney(activeOrder.total ?? 0)}
                         </span>
+                      </button>
+                    )}
+
+                    {(isAdmin || isGerente) && table.status === TableStatus.Occupied && (
+                      <button
+                        type="button"
+                        disabled={releaseLoading || releaseSaving}
+                        onClick={() => void openReleaseReview(table)}
+                        className="w-full rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 transition hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        {previousReviews.some((review) => review.tableId === table.id)
+                          ? "Revisar cierre de jornada anterior"
+                          : "Comprobar ocupación"}
                       </button>
                     )}
 

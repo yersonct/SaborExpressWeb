@@ -52,6 +52,7 @@ export interface Order {
   employeeName: string | null;
   tableId: number | null;
   tableNumber: number | null;
+  tableSessionId?: string | null;
   branchId: number;
   branchName: string | null;
   orderType: OrderType;
