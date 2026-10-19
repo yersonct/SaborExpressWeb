@@ -155,6 +155,38 @@ export const SchedulesView = () => {
   const [transferring, setTransferring] = useState(false);
   const [transferError, setTransferError] = useState("");
   const [transferSuccessMsg, setTransferSuccessMsg] = useState("");
+  const [mailConfirmOpen, setMailConfirmOpen] = useState(false);
+  const [mailSending, setMailSending] = useState(false);
+  const [mailMessage, setMailMessage] = useState<{ text: string; error: boolean } | null>(null);
+
+  const sendWeekSchedulesByEmail = async () => {
+    if (!branchId || mailSending) return;
+    setMailSending(true);
+    setMailMessage(null);
+    try {
+      const result = await employeeScheduleService.sendWeekEmails(
+        branchId, toISODate(weekStart), toISODate(weekEnd),
+      );
+      const summary = `Correos enviados: ${result.sent}. Sin correo: ${result.skipped}. Fallidos: ${result.failed}.`;
+      setMailMessage({
+        text: result.failed > 0
+          ? `${summary} Revisa los fallidos antes de reenviar; algunos empleados ya recibieron su horario.`
+          : result.sent === 0
+            ? `${summary} No se enviaron correos en esta semana.`
+            : `${summary} Cada empleado recibió únicamente sus turnos de la sede seleccionada.`,
+        error: result.failed > 0 || result.sent === 0,
+      });
+      setMailConfirmOpen(false);
+    } catch (err: any) {
+      setMailMessage({
+        text: err?.response?.data?.message ?? "No se pudieron enviar los horarios. Verifica la conexión y la configuración del correo.",
+        error: true,
+      });
+      setMailConfirmOpen(false);
+    } finally {
+      setMailSending(false);
+    }
+  };
   // Si es Gerente, carga TODAS las sedes para que elija.
   const loadAllBranches = useCallback(async () => {
     if (!isGerente) return;
@@ -867,28 +899,47 @@ export const SchedulesView = () => {
                {translateCopy("Hoy")} </button>
           </div>
         </div>
-        <button
-          onClick={async () => {
-            if (!branchId) return;
-            const hours = await loadBranchHours(branchId);
-            if (!hours) {
-              setNoHoursAlert(true);
-              return;
-            }
-            setBulkForm({
-              ...emptyBulkForm,
-              startTime: hours.open,
-              endTime: hours.close,
-            });
-            setBulkError([]);
-            setIsBulkModalOpen(true);
-          }}
-          disabled={!branchId}
-          className="w-full lg:w-auto bg-[#EA1D2C] text-white px-5 py-2.5 rounded-lg font-semibold hover:opacity-90 disabled:opacity-40"
-        >
-           {translateCopy("+ Asignar semana completa")} </button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <button
+            type="button"
+            onClick={() => {
+              setMailMessage(null);
+              setMailConfirmOpen(true);
+            }}
+            disabled={!branchId || mailSending || weekSchedules.length === 0}
+            className="w-full rounded-lg border border-[#EA1D2C] bg-white px-5 py-2.5 font-semibold text-[#EA1D2C] transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+            title="Enviar a cada empleado los turnos de la semana visible"
+          >
+            Enviar horarios por correo
+          </button>
+          <button
+            onClick={async () => {
+              if (!branchId) return;
+              const hours = await loadBranchHours(branchId);
+              if (!hours) {
+                setNoHoursAlert(true);
+                return;
+              }
+              setBulkForm({
+                ...emptyBulkForm,
+                startTime: hours.open,
+                endTime: hours.close,
+              });
+              setBulkError([]);
+              setIsBulkModalOpen(true);
+            }}
+            disabled={!branchId}
+            className="w-full lg:w-auto bg-[#EA1D2C] text-white px-5 py-2.5 rounded-lg font-semibold hover:opacity-90 disabled:opacity-40"
+          >
+             {translateCopy("+ Asignar semana completa")} </button>
+        </div>
       </div>
 
+      {mailMessage && (
+        <div role="status" className={`mb-3 rounded-xl px-4 py-3 text-sm ${mailMessage.error ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>
+          {mailMessage.text}
+        </div>
+      )}
       {error && (
         <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
           {translateCopy(error)}
@@ -1496,6 +1547,32 @@ export const SchedulesView = () => {
             </div>
           </div>
         )}
+      </Dialog>
+      <Dialog
+        isOpen={mailConfirmOpen}
+        title="Enviar horarios de la semana"
+        onClose={() => { if (!mailSending) setMailConfirmOpen(false); }}
+      >
+        <p className="text-sm leading-6 text-slate-600">
+          Vas a enviar por correo los turnos de <strong>{formatDayHeader(weekStart)} a {formatDayHeader(weekEnd)}</strong>
+          {" "}de la sede seleccionada. Cada empleado recibirá solamente su propio horario.
+          El sistema omitirá a quienes no tengan correo registrado.
+        </p>
+        <p className="mt-3 text-sm font-medium text-slate-700">
+          Empleados con turnos: {new Set(weekSchedules.map((shift) => shift.employeeId)).size}
+        </p>
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
+          <button type="button" disabled={mailSending}
+            onClick={() => setMailConfirmOpen(false)}
+            className="rounded-lg border border-slate-200 px-5 py-2.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+            Cancelar
+          </button>
+          <button type="button" disabled={mailSending || !branchId || weekSchedules.length === 0}
+            onClick={() => void sendWeekSchedulesByEmail()}
+            className="rounded-lg bg-[#EA1D2C] px-5 py-2.5 font-semibold text-white hover:bg-red-700 disabled:opacity-50">
+            {mailSending ? "Enviando correos..." : "Confirmar envío"}
+          </button>
+        </div>
       </Dialog>
       <Dialog
         isOpen={noHoursAlert}
