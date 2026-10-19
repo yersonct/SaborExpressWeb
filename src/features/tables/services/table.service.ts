@@ -1,6 +1,8 @@
   import { http } from "@/config/api";
   import {
     type Table,
+    type TableReleaseReview,
+    type ReleasePreviousTablePayload,
     type CreateTablePayload,
     type UpdateTablePayload,
     type UpdateTableStatusPayload,
@@ -8,6 +10,20 @@
   } from "../types/table.types";
 
   export const tableService = {
+    getReleaseReview: async (id: number): Promise<TableReleaseReview> => {
+      const { data } = await http.get<TableReleaseReview>(`/Tables/${id}/release-review`);
+      return data;
+    },
+
+    getPreviousReleaseReviews: async (branchId: number): Promise<TableReleaseReview[]> => {
+      const { data } = await http.get<TableReleaseReview[]>(`/Tables/branch/${branchId}/previous-release-reviews`);
+      return data;
+    },
+
+    releasePrevious: async (id: number, payload: ReleasePreviousTablePayload): Promise<Table> => {
+      const { data } = await http.post<Table>(`/Tables/${id}/release-previous`, payload);
+      return data;
+    },
     // GET /api/Tables/branch/{branchId}
     getByBranch: async (branchId: number): Promise<Table[]> => {
       const { data } = await http.get<Table[]>(`/Tables/branch/${branchId}`);
