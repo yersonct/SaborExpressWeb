@@ -818,7 +818,7 @@ export const ConfigView = () => {
                             </div>
                             <p className="mt-3 text-xs text-gray-500">
                               {translateCopy(
-                                "Usa 8% para Impoconsumo. El impuesto se calcula sobre el subtotal de productos; el domicilio se suma aparte y no hace parte de esa base. Configura 0% solo si el contribuyente es persona natural, tuvo ingresos de esta actividad inferiores a 3.500 UVT el año anterior, tiene máximo un establecimiento y figura como no responsable del INC en el RUT; la app no verifica esas condiciones.",
+                                "Usa 8% para Impoconsumo. Para pedidos nuevos, el impuesto se suma al subtotal de productos; el domicilio se agrega después y no hace parte de la base gravable. Los pedidos ya creados mantienen el cálculo original. Configura 0% solo si el contribuyente es persona natural, tuvo ingresos de esta actividad inferiores a 3.500 UVT el año anterior, tiene máximo un establecimiento y figura como no responsable del INC en el RUT; la app no verifica esas condiciones.",
                               )}{" "}
                             </p>
                             <div className="delivery-assignment-card mt-5 rounded-2xl border p-4 md:flex md:items-center md:justify-between md:gap-6">

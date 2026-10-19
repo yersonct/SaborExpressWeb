@@ -202,7 +202,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 <span>
                   {selectedOrder.taxIncludedInPrice
                     ? t("orderBreakdown.taxOnProducts")
-                    : translateCopy("Impuesto registrado")}
+                    : translateCopy("Impoconsumo adicional")}
                   {selectedOrder.taxRate > 0 ? ` (${selectedOrder.taxRate}%)` : ""}
                 </span>
                 <span>{formatCurrency(selectedOrder.tax)}</span>
