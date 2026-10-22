@@ -8,6 +8,12 @@ import i18n from "@/config/i18n";
 import { translateCopy } from "@/config/copy-translations";
 import { getInMemorySession, setInMemorySession } from "@/features/auth/session-memory";
 import type { UserSession } from "@/features/auth/types/auth.types";
+import {
+  configureClientLatencyMetrics,
+  markClientRequestStart,
+  recordClientFailure,
+  recordClientResponse,
+} from "@/config/client-latency-metrics";
 
 const CONFIGURED_API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "");
 
@@ -62,6 +68,8 @@ export const http = axios.create({
     "Content-Type": "application/json",
   },
 });
+
+configureClientLatencyMetrics(API_BASE, () => getInMemorySession() !== null);
 
 function getPreferredLanguage() {
   let language = i18n.resolvedLanguage ?? i18n.language ?? "es";
@@ -120,6 +128,7 @@ function localizeApiError(error: unknown) {
 }
 
 http.interceptors.request.use((config) => {
+  markClientRequestStart(config);
   setLanguageHeader(config);
   config.headers.set("X-Client-App", "admin-web");
   return config;
@@ -384,10 +393,16 @@ if (
 
 http.interceptors.response.use(
   (response) => {
+    recordClientResponse(response);
     clearNetworkErrorToast();
     return response;
   },
   async (error) => {
+    recordClientFailure(
+      error?.config,
+      error?.response?.headers,
+      error?.response?.status,
+    );
     // Reescribe error.message con el mensaje real que manda el backend
     // (ej. "Ya existe una mesa con ese número en esta sucursal"), para que
     // cualquier `catch` en cualquier hook lo reciba correcto automáticamente,
