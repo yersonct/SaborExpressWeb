@@ -295,11 +295,25 @@ function onRefreshFailed(err: unknown) {
 
 function forceLogout() {
   clearInMemorySession();
+
+  // Si ya estamos en el login, no mostrar avisos
+  // ni intentar redirigir nuevamente.
+  if (
+    window.location.pathname === "/login" ||
+    window.location.pathname.startsWith("/login/")
+  ) {
+    return;
+  }
+
   if (redirecting) return;
+
   redirecting = true;
   showSessionExpiredToast();
+
   setTimeout(() => {
-    window.location.replace(new URL("/login", window.location.origin));
+    window.location.replace(
+      new URL("/login", window.location.origin)
+    );
   }, 2500);
 }
 

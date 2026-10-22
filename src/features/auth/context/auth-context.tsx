@@ -18,7 +18,7 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   isHydrated: boolean;
   login: (session: UserSession) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -46,24 +46,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // El almacenamiento del navegador puede estar deshabilitado.
     }
 
-    if (navigator.onLine === false) {
-      handleOffline();
-    } else {
-      void authService.getCurrentSession()
-        .then((restoredSession) => {
-          if (!active || authVersion.current !== bootstrapVersion) return;
-          setInMemorySession(restoredSession);
-          setSession(restoredSession);
-        })
-        .catch(() => {
-          if (!active || authVersion.current !== bootstrapVersion) return;
-          setInMemorySession(null);
-          setSession(null);
-        })
-        .finally(() => {
-          if (active) setIsHydrated(true);
-        });
-    }
+const isLoginPage =
+  window.location.pathname === "/login" ||
+  window.location.pathname.startsWith("/login/");
+
+if (isLoginPage) {
+  setIsHydrated(true);
+} else if (navigator.onLine === false) {
+  handleOffline();
+} else {
+  void authService
+    .getCurrentSession()
+    .then((restoredSession) => {
+      if (!active || authVersion.current !== bootstrapVersion) return;
+      setInMemorySession(restoredSession);
+      setSession(restoredSession);
+    })
+    .catch(() => {
+      if (!active || authVersion.current !== bootstrapVersion) return;
+      setInMemorySession(null);
+      setSession(null);
+    })
+    .finally(() => {
+      if (active) setIsHydrated(true);
+    });
+}
 
     const handleSessionRefreshed = (event: Event) => {
       const refreshed = (event as CustomEvent<UserSession>).detail;
@@ -96,12 +103,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(newSession);
   }, []);
 
-  const logout = useCallback(() => {
-    authVersion.current += 1;
-    setInMemorySession(null);
-    setSession(null);
-    void authService.logout();
-  }, []);
+const logout = useCallback(async () => {
+  authVersion.current += 1;
+  setInMemorySession(null);
+  setSession(null);
+  await authService.logout();
+}, []);
 
   return (
     <AuthContext.Provider
