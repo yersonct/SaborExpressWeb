@@ -1,12 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { authService, RateLimitError } from "../services/auth.service";
 
 export function useForgotPassword(onSuccess: (msg: string) => void) {
+  const { t } = useTranslation();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [newPasswordError, setNewPasswordError] = useState("");
+  const [confirmPasswordError, setConfirmPasswordError] = useState("");
 
   const [email, setEmailState] = useState("");
   const [code, setCodeState] = useState("");
@@ -26,17 +30,24 @@ export function useForgotPassword(onSuccess: (msg: string) => void) {
 
   const setNewPassword = (value: string) => {
     setNewPasswordState(value);
+    setNewPasswordError("");
     setError("");
   };
 
   const setConfirmPassword = (value: string) => {
     setConfirmPasswordState(value);
+    setConfirmPasswordError("");
     setError("");
   };
 
 const handleSendCode = async () => {
-  if (!email) {
-    setError("Ingresa un correo electrónico");
+  const normalizedEmail = email.trim();
+  if (!normalizedEmail) {
+    setError(t("forgot.email_required"));
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    setError(t("forgot.email_invalid"));
     return;
   }
 
@@ -44,7 +55,7 @@ const handleSendCode = async () => {
   setLoading(true);
 
   try {
-    await authService.requestPasswordReset(email);
+    await authService.requestPasswordReset(normalizedEmail);
     setStep(2);
   } catch (requestError) {
     if (requestError instanceof RateLimitError) {
@@ -62,8 +73,13 @@ const handleSendCode = async () => {
 };
 
   const handleVerifyCode = async () => {
-    if (!code) {
-      setError("Ingresa el código");
+    const normalizedCode = code.trim();
+    if (!normalizedCode) {
+      setError(t("forgot.code_required"));
+      return;
+    }
+    if (!/^\d{6}$/.test(normalizedCode)) {
+      setError(t("forgot.code_invalid"));
       return;
     }
 
@@ -71,7 +87,7 @@ const handleSendCode = async () => {
     setLoading(true);
 
     try {
-      const token = await authService.verifyPasswordResetCode(email, code);
+      const token = await authService.verifyPasswordResetCode(email.trim(), normalizedCode);
       setResetToken(token);
       setStep(3);
     } catch (requestError) {
@@ -86,8 +102,23 @@ const handleSendCode = async () => {
   };
 
   const handleResetPassword = async () => {
-    if (!newPassword || !confirmPassword) {
-      setError("Completa ambos campos de contraseña");
+    setError("");
+    setNewPasswordError("");
+    setConfirmPasswordError("");
+    if (!newPassword) {
+      setNewPasswordError(t("forgot.password_required"));
+      return;
+    }
+    if (newPassword.length < 8) {
+      setNewPasswordError(t("forgot.password_min"));
+      return;
+    }
+    if (!confirmPassword) {
+      setConfirmPasswordError(t("forgot.confirm_required"));
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setConfirmPasswordError(t("forgot.password_mismatch"));
       return;
     }
 
@@ -112,6 +143,8 @@ const handleSendCode = async () => {
     step,
     loading,
     error,
+    newPasswordError,
+    confirmPasswordError,
     email,
     setEmail,
     code,

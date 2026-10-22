@@ -9,23 +9,8 @@ import {
   type UpdateMyProfilePayload,
 } from "../services/employee-me.service";
 
-const SESSION_KEY = "sabor-express-session";
-
 // El endpoint /Employees/me responde 401 si el token no trae EmployeeId, y el
 // interceptor de axios cerraría la sesión. Por eso se verifica antes de llamar.
-function tokenHasEmployeeId(): boolean {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    const token = raw ? JSON.parse(raw)?.token : null;
-    if (!token) return false;
-    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-    const json = JSON.parse(decodeURIComponent(escape(atob(payload))));
-    return Boolean(json.EmployeeId);
-  } catch {
-    return false;
-  }
-}
-
 export function useMyProfile(enabled: boolean) {
   const { session } = useAuth();
   const userId = session?.userId ?? null;
@@ -35,7 +20,7 @@ export function useMyProfile(enabled: boolean) {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!enabled || !tokenHasEmployeeId()) {
+    if (!enabled || !session?.employeeId) {
       await Promise.resolve();
       setLoading(false);
       return;
@@ -50,7 +35,7 @@ export function useMyProfile(enabled: boolean) {
     } finally {
       setLoading(false);
     }
-  }, [enabled]);
+  }, [enabled, session?.employeeId]);
 
   useEffect(() => {
     queueMicrotask(() => void load());
@@ -82,7 +67,7 @@ export function useMyProfile(enabled: boolean) {
         setSaving(false);
       }
     },
-    [profile],
+    [],
   );
 
   return { profile, loading, saving, error, save };

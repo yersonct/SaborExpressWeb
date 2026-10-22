@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { reviewService } from "../services/review.service";
 import type {
   Review,
@@ -78,9 +79,7 @@ export function useBranchReviews(branchId: number | null) {
   );
 
   // Carga inicial y al cambiar de sede
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => deferEffect(() => void load()), [load]);
 
   // Tiempo real: el back emite ReviewsChanged al crear, editar, borrar o calificar
   const refreshImmediately = useCallback(() => {

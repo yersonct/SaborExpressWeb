@@ -80,7 +80,7 @@ export const AuditView = () => {
     return () => clearInterval(timer);
   }, []);
   const { fromDate, toDate } = useMemo(
-    () => buildDateRange(isAdministrador ? "hoy" : dateOption),
+    () => buildDateRange(isAdministrador ? "hoy" : dateOption, colombiaTodayKey),
     [isAdministrador, dateOption, colombiaTodayKey],
   );
 
@@ -108,17 +108,20 @@ export const AuditView = () => {
   // Reembolso: disponible para ambos roles
   const [refundTarget, setRefundTarget] = useState<Payment | null>(null);
   const [refundReason, setRefundReason] = useState("");
+  const [refundReasonError, setRefundReasonError] = useState("");
   const [refunding, setRefunding] = useState(false);
   const [notify, setNotify] = useState<NotifyState>(null);
 
   const openRefund = (payment: Payment) => {
     setRefundTarget(payment);
     setRefundReason("");
+    setRefundReasonError("");
   };
 
   const handleCancelRefund = () => {
     setRefundTarget(null);
     setRefundReason("");
+    setRefundReasonError("");
     setNotify({
       message: translateCopy("Reembolso cancelado. No se hizo ningún cambio en el pago."),
       type: "warning",
@@ -126,7 +129,16 @@ export const AuditView = () => {
   };
 
   const handleRefund = async () => {
-    if (!refundTarget || !refundReason.trim()) return;
+    if (!refundTarget) return;
+    if (!refundReason.trim()) {
+      setRefundReasonError("Debe indicar el motivo del reembolso");
+      return;
+    }
+    if (refundReason.trim().length > 500) {
+      setRefundReasonError("El motivo no puede superar los 500 caracteres");
+      return;
+    }
+    setRefundReasonError("");
     setRefunding(true);
     try {
       await refundPayment(refundTarget.id, refundReason.trim());
@@ -146,29 +158,6 @@ export const AuditView = () => {
   };
 
   // Exportar: solo Gerente
-  const handleExport = () => {
-    const headers = ["Fecha", "Cajero", "Método", "Monto", "Estado"]
-      .map(translateCopy);
-    const rows = filteredPayments.map((p) => [
-      formatColombiaDateTime(p.paidAt, getCurrentLocale()),
-      p.cashierName ?? "",
-      translateCopy(paymentMethodLabels[p.method]),
-      p.amount,
-      translateCopy(paymentStatusLabels[p.status]),
-    ]);
-    const csv = [
-      headers.join(","),
-      ...rows.map((r) => r.join(",")),
-    ].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${translateCopy("Pagos").toLowerCase()}_${getColombiaDayKey()}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
   const handleExportPdf = () => {
     const rangeLabels: Record<DateRangeOption, string> = {
       hoy: translateCopy("Hoy"),
@@ -470,12 +459,16 @@ export const AuditView = () => {
             <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
                {translateCopy("Motivo del reembolso")} </label>
             <textarea
+              id="refund-reason"
               value={refundReason}
-              onChange={(e) => setRefundReason(e.target.value)}
+              onChange={(e) => { setRefundReason(e.target.value); setRefundReasonError(""); }}
               rows={3}
+              maxLength={500}
+              aria-invalid={!!refundReasonError}
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#EA1D2C]"
               placeholder={translateCopy("Ej: Producto no entregado")}
             />
+            {refundReasonError && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(refundReasonError)}</p>}
           </div>
           <div className="flex justify-end gap-3">
             <button
@@ -485,7 +478,7 @@ export const AuditView = () => {
                {translateCopy("Cancelar")} </button>
             <button
               onClick={handleRefund}
-              disabled={refunding || !refundReason.trim()}
+              disabled={refunding || !refundReason.trim() || refundReason.trim().length > 500}
               className="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors disabled:opacity-50"
             >
               {refunding ? translateCopy("Procesando...") : translateCopy("Confirmar reembolso")}

@@ -30,6 +30,7 @@ export function openPaymentsPdf({
   methodLabel,
 }: Options) {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const tableDoc = doc as jsPDF & { lastAutoTable: { finalY: number } };
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 40;
   const locale = getCurrentLocale();
@@ -83,7 +84,7 @@ export function openPaymentsPdf({
     styles: { fontSize: 9 },
     columnStyles: { 1: { halign: "right" } },
   });
-  const afterMethod = (doc as any).lastAutoTable.finalY as number;
+  const afterMethod = tableDoc.lastAutoTable.finalY;
 
   autoTable(doc, {
     startY: 164,
@@ -95,7 +96,7 @@ export function openPaymentsPdf({
     styles: { fontSize: 9 },
     columnStyles: { 1: { halign: "right" } },
   });
-  const afterStatus = (doc as any).lastAutoTable.finalY as number;
+  const afterStatus = tableDoc.lastAutoTable.finalY;
 
   // Historial
   const sorted = [...payments].sort(

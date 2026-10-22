@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useAdminDataChanged } from "@/features/Dashboard/hooks/use-admin-data-changed";
 import { branchService } from "../services/branch.service";
@@ -39,9 +40,7 @@ export function useMyBranch(enabled?: boolean) {
     }
   }, [isEnabled]);
 
-  useEffect(() => {
-    fetchMyBranch();
-  }, [fetchMyBranch]);
+  useEffect(() => deferEffect(() => void fetchMyBranch()), [fetchMyBranch]);
 
   const refreshAfterChange = useCallback(() => {
     void fetchMyBranch(true);

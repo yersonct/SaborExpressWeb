@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { paymentService } from "../services/payment.service";
 import type { Payment, PaymentFilter } from "../types/payment.types";
 import { useAuth } from "@/features/auth/hooks/use-auth";
@@ -13,6 +14,9 @@ export function usePayments(filter?: PaymentFilter, enabled?: boolean) {
   const isEnabled = enabled !== false;
   const { session } = useAuth();
   const userId = isEnabled ? (session?.userId ?? null) : null;
+  const branchId = filter?.branchId;
+  const fromDate = filter?.fromDate;
+  const toDate = filter?.toDate;
   const realtimeStatus = useRealtimeConnectionStatus(userId);
 
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -30,7 +34,7 @@ export function usePayments(filter?: PaymentFilter, enabled?: boolean) {
       if (!hasLoadedRef.current) setLoading(true);
       if (!silent) setError("");
       try {
-        const data = await paymentService.getAll(filter);
+        const data = await paymentService.getAll({ branchId, fromDate, toDate });
         setPayments(data);
       } catch (err) {
         if (!silent) {
@@ -45,12 +49,10 @@ export function usePayments(filter?: PaymentFilter, enabled?: boolean) {
         hasLoadedRef.current = true;
       }
     },
-    [isEnabled, filter?.branchId, filter?.fromDate, filter?.toDate],
+    [isEnabled, branchId, fromDate, toDate],
   );
 
-  useEffect(() => {
-    fetchPayments();
-  }, [fetchPayments]);
+  useEffect(() => deferEffect(() => void fetchPayments()), [fetchPayments]);
 
   // Tiempo real: el backend publica el cambio de pago al crearlo, aprobarlo o reembolsarlo.
   const refreshImmediately = useCallback(() => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { useAuth } from "@/features/auth/hooks/use-auth";
 import {
   useRealtimeConnectionStatus,
@@ -45,9 +46,7 @@ export function useOrderDetail(orderId: number | null) {
     }
   }, [orderId]);
 
-  useEffect(() => {
-    fetchOrder();
-  }, [fetchOrder]);
+  useEffect(() => deferEffect(() => void fetchOrder()), [fetchOrder]);
 
   const refreshForOrderChange = useCallback(() => {
     void fetchOrder(true);
