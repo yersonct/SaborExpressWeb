@@ -63,10 +63,11 @@ export const authService = {
         {
           withCredentials: true,
           headers: { "X-Client-App": "admin-web" },
+          timeout: 5000,
         },
       );
     } catch {
-      // La sesión local se cierra aunque el servidor no esté disponible.
+      // La sesión local se cierra aunque el servidor no responda.
     }
   },
 
@@ -99,12 +100,13 @@ export const authService = {
       const response = axios.isAxiosError<{
         retryAfterSeconds?: number;
         message?: string;
-      }>(err) ? err.response : undefined;
+      }>(err)
+        ? err.response
+        : undefined;
       if (response?.status === 429) {
         const retryAfterSeconds = response.data?.retryAfterSeconds ?? 0;
         throw new RateLimitError(
-          response.data?.message ??
-            "Demasiados intentos. Intenta más tarde.",
+          response.data?.message ?? "Demasiados intentos. Intenta más tarde.",
           retryAfterSeconds,
         );
       }
