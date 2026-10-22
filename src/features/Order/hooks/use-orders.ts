@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { orderService } from "../services/order.service";
 import { useAuth } from "@/features/auth/hooks/use-auth";
 import {
@@ -21,6 +22,10 @@ export function useOrders(filter?: OrderFilter) {
   const [error, setError] = useState("");
 
   const { session } = useAuth();
+  const branchId = filter?.branchId;
+  const status = filter?.status;
+  const fromDate = filter?.fromDate;
+  const toDate = filter?.toDate;
   const userId = session?.userId ?? null;
   const realtimeStatus = useRealtimeConnectionStatus(userId);
   const hasLoadedRef = useRef(false);
@@ -30,7 +35,7 @@ export function useOrders(filter?: OrderFilter) {
     if (!hasLoadedRef.current) setLoading(true);
     if (!silent) setError("");
     try {
-      const data = await orderService.getAll(filter);
+      const data = await orderService.getAll({ branchId, status, fromDate, toDate });
       const sorted = [...data].sort((a, b) => b.id - a.id);
       setOrders(sorted);
     } catch (err) {
@@ -45,11 +50,9 @@ export function useOrders(filter?: OrderFilter) {
       setLoading(false);
       hasLoadedRef.current = true;
     }
-  }, [filter?.branchId, filter?.status, filter?.fromDate, filter?.toDate]);
+  }, [branchId, status, fromDate, toDate]);
 
-  useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
+  useEffect(() => deferEffect(() => void fetchOrders()), [fetchOrders]);
 
   // Tiempo real: junta varios eventos seguidos en una sola recarga
   const refreshImmediately = useCallback(() => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { branchOperationalSettingsService } from "../services/branch-operational-settings.service";
 import type {
   BranchOperationalSettings,
@@ -41,9 +42,7 @@ export function useBranchOperationalSettings(branchId: number | null) {
     }
   }, [branchId]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => deferEffect(() => void load()), [load]);
 
   const save = useCallback(
     async (payload: UpdateBranchOperationalSettingsPayload) => {

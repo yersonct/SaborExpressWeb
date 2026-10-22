@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { notificationService } from "../services/notification.service";
 import type { Notification } from "../types/notification.types";
 import { useRealtimeEvents } from "@/features/Dashboard/hooks/use-realtime-events";
@@ -83,10 +84,10 @@ export function useNotifications(userId: number | null) {
   useAdminDataChanged(userId, ["Notifications"], refreshAfterChange);
 
   // Conteo inicial; los cambios posteriores llegan por SignalR.
-  useEffect(() => {
+  useEffect(() => deferEffect(() => {
     if (!userId) return;
     void fetchUnreadCount();
-  }, [userId, fetchUnreadCount]);
+  }), [userId, fetchUnreadCount]);
 
   const markAsRead = async (id: number) => {
     await notificationService.markAsRead(id);

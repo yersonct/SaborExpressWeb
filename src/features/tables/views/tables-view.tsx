@@ -1,6 +1,7 @@
 "use client";
 
 import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
+import { deferEffect } from "@/lib/defer-effect";
 import { translateCopy, getCurrentLocale } from "@/config/copy-translations";
 import { formatMoney } from "@/lib/format-money";
 import { useState, useMemo, useEffect } from "react";
@@ -16,7 +17,7 @@ import { tableService } from "../services/table.service";
 import { useOrders } from "@/features/Order/hooks/use-orders";
 import { useOrderDetail } from "@/features/Order/hooks/use-order-details";
 import { useOrderStatusHistory } from "@/features/Order/hooks/use-order-status-history";
-import { OrderStatus, type Order } from "@/features/Order/types/order.types";
+import { OrderStatus } from "@/features/Order/types/order.types";
 
 type NotifyState = { message: string; type: "success" | "error" } | null;
 
@@ -94,14 +95,13 @@ const { history: statusHistory, loading: loadingHistory } = useOrderStatusHistor
       (branchId === null || !branches.some((branch) => branch.id === branchId))) {
       setBranchId(branches[0].id);
     }
-  }, [branches, branchId, branchReady]);
+  }, [branches, branchId, branchReady, setBranchId]);
 const {
   tables,
   loading,
   error,
   createTable,
   updateTable,
-  updateStatus,
   deleteTable,
   refetch: refetchTables,
 } = useTables(branchId, branches);
@@ -143,14 +143,19 @@ const activeOrderByTableId = useMemo(() => {
 
   useEffect(() => {
     let current = true;
-    if (!branchId || !(isGerente || isAdmin)) {
-      setPreviousReviews([]);
-      return;
-    }
-    void tableService.getPreviousReleaseReviews(branchId)
-      .then((reviews) => { if (current) setPreviousReviews(reviews); })
-      .catch(() => { if (current) setPreviousReviews([]); });
-    return () => { current = false; };
+    const cancelDeferredLoad = deferEffect(() => {
+      if (!branchId || !(isGerente || isAdmin)) {
+        setPreviousReviews([]);
+        return;
+      }
+      void tableService.getPreviousReleaseReviews(branchId)
+        .then((reviews) => { if (current) setPreviousReviews(reviews); })
+        .catch(() => { if (current) setPreviousReviews([]); });
+    });
+    return () => {
+      current = false;
+      cancelDeferredLoad();
+    };
   }, [branchId, isAdmin, isGerente, tables]);
 
   const openReleaseReview = async (table: Table) => {
@@ -197,6 +202,7 @@ const activeOrderByTableId = useMemo(() => {
   const [editingTable, setEditingTable] = useState<Table | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Table | null>(null);
   const [number, setNumber] = useState("");
+  const [numberError, setNumberError] = useState("");
   const [saving, setSaving] = useState(false);
   const [notify, setNotify] = useState<NotifyState>(null);
   const [statusFilter, setStatusFilter] = useRememberedUiState<TableStatus | "all">("tables", "status", "all");
@@ -204,22 +210,25 @@ const activeOrderByTableId = useMemo(() => {
   const openCreate = () => {
     setEditingTable(null);
     setNumber("");
+    setNumberError("");
     setIsFormOpen(true);
   };
 
   const openEdit = (table: Table) => {
     setEditingTable(table);
     setNumber(String(table.number));
+    setNumberError("");
     setIsFormOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const num = Number(number);
-    if (!number || isNaN(num) || num <= 0) {
-      setNotify({ message: translateCopy("Ingresa un número de mesa válido"), type: "error" });
+    if (!number || !Number.isInteger(num) || num <= 0) {
+      setNumberError("Ingresa un número de mesa entero mayor que 0.");
       return;
     }
+    setNumberError("");
     if (!editingTable && !branchId) {
       setNotify({ message: translateCopy("Selecciona una sede primero"), type: "error" });
       return;
@@ -242,21 +251,6 @@ const activeOrderByTableId = useMemo(() => {
       setNotify({
         message:
           err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo guardar la mesa"),
-        type: "error",
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleStatusChange = async (table: Table, status: TableStatus) => {
-    setSaving(true);
-    try {
-      await updateStatus(table.id, { status });
-    } catch (err) {
-      setNotify({
-        message:
-          err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo cambiar el estado"),
         type: "error",
       });
     } finally {
@@ -316,36 +310,36 @@ const activeOrderByTableId = useMemo(() => {
     <>
       <Dialog
         isOpen={!!releaseReview}
-        title={releaseReview ? `Revisar mesa ${releaseReview.tableNumber}` : "Revisar mesa"}
+        title={translateCopy(releaseReview ? `Revisar mesa ${releaseReview.tableNumber}` : "Revisar mesa")}
         onClose={() => { if (!releaseSaving) setReleaseReview(null); }}
       >
         {releaseReview && (
           <div className="space-y-4 text-sm text-gray-800">
             {!releaseReview.isPreviousDay && !releaseReview.isOrphan ? (
               <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
-                Es una sesión activa de hoy. No se permite liberarla por esta herramienta.
+                {translateCopy("Es una sesión activa de hoy. No se permite liberarla por esta herramienta.")}
               </p>
             ) : (
               <>
                 <p>{releaseReview.isOrphan
-                  ? "No se encontraron pedidos vinculados a esta ocupación. Comprueba físicamente que nadie utiliza la mesa antes del cierre administrativo."
-                  : `Se encontraron ${releaseReview.orders.length} pedidos asociados a la sesión previa.`}
-                  {" "}Los pedidos y pagos existentes se conservarán.</p>
+                  ? translateCopy("No se encontraron pedidos vinculados a esta ocupación. Comprueba físicamente que nadie utiliza la mesa antes del cierre administrativo.")
+                  : translateCopy(`Se encontraron ${releaseReview.orders.length} pedidos asociados a la sesión previa.`)}
+                  {" "}{translateCopy("Los pedidos y pagos existentes se conservarán.")}</p>
                 <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-200 p-3 space-y-2">
                   {releaseReview.orders.map((order) => (
                     <p key={order.orderId}>
-                      Pedido #{order.orderId} — {order.isPaid ? "Pagado" : "Pago pendiente"} · {order.isDelivered ? "Entregado" : "Entrega pendiente"}
+                      {translateCopy(`Pedido #${order.orderId}`)} — {order.isPaid ? translateCopy("Pagado") : translateCopy("Pago pendiente")} · {order.isDelivered ? translateCopy("Entregado") : translateCopy("Entrega pendiente")}
                     </p>
                   ))}
                 </div>
                 {releaseReview.outstandingAmount > 0 && (
                   <p className="rounded-xl bg-amber-50 p-3 font-semibold text-amber-900">
-                    Saldo pendiente: {formatMoney(releaseReview.outstandingAmount)}. Liberar la mesa no lo cobra ni lo cancela.
+                    {translateCopy(`Saldo pendiente: ${formatMoney(releaseReview.outstandingAmount)}. Liberar la mesa no lo cobra ni lo cancela.`)}
                   </p>
                 )}
                 {!releaseReview.canReleaseNormally && (
                   <div>
-                    <label className={labelClass} htmlFor="table-release-reason">Motivo obligatorio del cierre administrativo</label>
+                    <label className={labelClass} htmlFor="table-release-reason">{translateCopy("Motivo obligatorio del cierre administrativo")}</label>
                     <textarea
                       id="table-release-reason"
                       rows={3}
@@ -353,20 +347,20 @@ const activeOrderByTableId = useMemo(() => {
                       className={inputClass}
                       value={releaseReason}
                       onChange={(e) => setReleaseReason(e.target.value)}
-                      placeholder="Explica por qué debe liberarse esta mesa pese a los pedidos pendientes"
+                      placeholder={translateCopy("Explica por qué debe liberarse esta mesa pese a los pedidos pendientes")}
                     />
                   </div>
                 )}
               </>
             )}
-            {releaseError && <p role="alert" className="text-red-700">{releaseError}</p>}
+            {releaseError && <p role="alert" className="text-red-700">{translateCopy(releaseError)}</p>}
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setReleaseReview(null)} disabled={releaseSaving}
-                className="rounded-lg border border-gray-200 px-4 py-2">Cancelar</button>
+                className="rounded-lg border border-gray-200 px-4 py-2">{translateCopy("Cancelar")}</button>
               {(releaseReview.isPreviousDay || releaseReview.isOrphan) && (
                 <button type="button" onClick={() => void confirmPreviousRelease()} disabled={releaseSaving}
                   className="rounded-lg bg-[#EA1D2C] px-4 py-2 font-bold text-white disabled:opacity-50">
-                  {releaseSaving ? "Guardando..." : releaseReview.canReleaseNormally ? "Liberar mesa anterior" : "Confirmar cierre administrativo"}
+                  {releaseSaving ? translateCopy("Guardando...") : releaseReview.canReleaseNormally ? translateCopy("Liberar mesa anterior") : translateCopy("Confirmar cierre administrativo")}
                 </button>
               )}
             </div>
@@ -547,8 +541,8 @@ const activeOrderByTableId = useMemo(() => {
                         className="w-full rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 transition hover:bg-amber-100 disabled:opacity-50"
                       >
                         {previousReviews.some((review) => review.tableId === table.id)
-                          ? "Revisar cierre de jornada anterior"
-                          : "Comprobar ocupación"}
+                          ? translateCopy("Revisar cierre de jornada anterior")
+                          : translateCopy("Comprobar ocupación")}
                       </button>
                     )}
 
@@ -582,13 +576,17 @@ const activeOrderByTableId = useMemo(() => {
           <div>
             <label className={labelClass}>{translateCopy("Número de Mesa")}</label>
             <input
+              id="table-number"
               type="number"
               value={number}
-              onChange={(e) => setNumber(e.target.value)}
+              onChange={(e) => { setNumber(e.target.value); setNumberError(""); }}
               className={inputClass}
               placeholder={translateCopy("Ej: 5")}
               min={1}
+              step={1}
+              aria-invalid={!!numberError}
             />
+            {numberError && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(numberError)}</p>}
           </div>
           <div className="pt-4 flex justify-end gap-3">
             <button

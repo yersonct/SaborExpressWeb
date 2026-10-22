@@ -1,6 +1,7 @@
 "use client";
 
 import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
+import { deferEffect } from "@/lib/defer-effect";
 import { translateCopy, getCurrentLocale } from "@/config/copy-translations";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -19,6 +20,7 @@ import type {
   CreateEmployeeSchedulePayload,
   EmployeeSchedule,
 } from "../types/employee-schedule.types";
+import type { Employee } from "@/features/Employees/types/employee.types";
 import { ROUTES } from "@/config/routes";
 import { useRouter } from "next/navigation";
 import { branchOperationalSettingsService } from "@/features/Configurations/services/branch-operational-settings.service";
@@ -36,6 +38,11 @@ const emptyForm: CreateEmployeeSchedulePayload = {
   startTime: "08:00",
   endTime: "17:00",
 };
+
+type BranchEmployee = Pick<
+  Employee,
+  "id" | "name" | "lastName" | "branchId" | "hasCv" | "roleNames"
+>;
 
 // Normaliza valores del API (HH:mm:ss) al formato que acepta <input type="time">.
 function toTimeInputValue(time: string): string {
@@ -79,7 +86,7 @@ function formatDayHeader(date: Date): string {
 // estructurado el campo en el objeto (roleName, role.name, role, etc.)
 // Solo es el Gerente semilla si tiene el rol GERENTE y NO tiene sede.
 // Un Gerente asignado por turno sí tiene sede, así que se muestra.
-function isGerenteRole(emp: any): boolean {
+function isGerenteRole(emp: Employee): boolean {
   const roles: string[] = emp.roleNames ?? [];
   return (
     roles.some((r) => r.toUpperCase().includes("GERENTE")) &&
@@ -150,10 +157,11 @@ export const SchedulesView = () => {
 
   const [allBranches, setAllBranches] = useState<Branch[]>([]);
   const [selectedBranchId, setSelectedBranchId, branchReady] = useRememberedUiState<number | null>("schedules", "branch", null);
-  const [transferTarget, setTransferTarget] = useState<any>(null);
+  const [transferTarget, setTransferTarget] = useState<BranchEmployee | null>(null);
   const [transferBranchId, setTransferBranchId] = useState<number | "">("");
   const [transferring, setTransferring] = useState(false);
   const [transferError, setTransferError] = useState("");
+  const [transferBranchError, setTransferBranchError] = useState("");
   const [transferSuccessMsg, setTransferSuccessMsg] = useState("");
   const [mailConfirmOpen, setMailConfirmOpen] = useState(false);
   const [mailSending, setMailSending] = useState(false);
@@ -177,9 +185,10 @@ export const SchedulesView = () => {
         error: result.failed > 0 || result.sent === 0,
       });
       setMailConfirmOpen(false);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : null;
       setMailMessage({
-        text: err?.response?.data?.message ?? "No se pudieron enviar los horarios. Verifica la conexión y la configuración del correo.",
+        text: errorMessage ?? "No se pudieron enviar los horarios.",
         error: true,
       });
       setMailConfirmOpen(false);
@@ -201,10 +210,8 @@ export const SchedulesView = () => {
     } catch {
       // Se conservan los datos ya visibles si una recarga en vivo falla.
     }
-  }, [isGerente]);
-  useEffect(() => {
-    void loadAllBranches();
-  }, [loadAllBranches]);
+  }, [isGerente, setSelectedBranchId]);
+  useEffect(() => deferEffect(() => void loadAllBranches()), [loadAllBranches]);
   useAdminDataChanged(
     session?.userId ?? null,
     ["Branches"],
@@ -217,7 +224,7 @@ export const SchedulesView = () => {
     if (!isGerente && myBranch) {
       setSelectedBranchId(myBranch.id);
     }
-  }, [isGerente, myBranch]);
+  }, [isGerente, myBranch, setSelectedBranchId]);
 
   const branchId = selectedBranchId;
 
@@ -275,24 +282,21 @@ export const SchedulesView = () => {
     }
   }, []);
 
-  const refreshBranchHours = useCallback(
-    (eventName?: string, ...args: unknown[]) => {
-      if (
-        eventName === "BranchOperationalSettingsChanged" &&
-        branchId != null &&
-        Number(args[0]) === branchId
-      ) {
-        void Promise.all([loadBranchHours(branchId), refetch()]);
-      }
-    },
-    [branchId, loadBranchHours, refetch],
-  );
-  const refreshBranchHoursAfterReconnect = useCallback(() => {
+  const refreshBranchHours = (eventName?: string, ...args: unknown[]) => {
+    if (
+      eventName === "BranchOperationalSettingsChanged" &&
+      branchId != null &&
+      Number(args[0]) === branchId
+    ) {
+      void Promise.all([loadBranchHours(branchId), refetch()]);
+    }
+  };
+  const refreshBranchHoursAfterReconnect = () => {
     if (branchId != null) {
       void loadBranchHours(branchId);
       void refetch();
     }
-  }, [branchId, loadBranchHours, refetch]);
+  };
   useRealtimeEvents(
     session?.userId ?? null,
     ["BranchOperationalSettingsChanged"],
@@ -300,16 +304,23 @@ export const SchedulesView = () => {
     refreshBranchHoursAfterReconnect,
   );
 
-  useEffect(() => {
+  useEffect(() => deferEffect(() => {
     if (branchId == null) {
       setBranchHours(null);
       return;
     }
     void loadBranchHours(branchId);
-  }, [branchId, loadBranchHours]);
+  }), [branchId, loadBranchHours]);
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState<CreateEmployeeSchedulePayload>(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [scheduleFieldErrors, setScheduleFieldErrors] = useState<{ employeeId?: string; branchId?: string; roleId?: string }>({});
 
   // Abre "Nuevo turno" con el horario de la sede, o avisa si no está configurado
-  const openCreateModal = async (
+  const openCreateModal = useCallback(async (
     employeeId: number,
     targetBranchId: number,
     shiftDate: string,
@@ -328,14 +339,9 @@ export const SchedulesView = () => {
       endTime: hours.close,
     });
     setFormError("");
+    setScheduleFieldErrors({});
     setIsModalOpen(true);
-  };
-
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState<CreateEmployeeSchedulePayload>(emptyForm);
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState("");
+  }, [loadBranchHours, setNoHoursAlert, setForm, setFormError, setIsModalOpen]);
 
   // --- Asignación semanal masiva ---
   const emptyBulkForm = {
@@ -350,6 +356,7 @@ export const SchedulesView = () => {
   const [bulkForm, setBulkForm] = useState(emptyBulkForm);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkError, setBulkError] = useState<string[]>([]);
+  const [bulkFieldErrors, setBulkFieldErrors] = useState<{ roleId?: string; days?: string }>({});
 
   // --- Semana seleccionada ---
   function startOfToday(): Date {
@@ -385,8 +392,8 @@ export const SchedulesView = () => {
   };
   const goToThisWeek = () => setWeekStart(startOfToday());
 
-  const employeesById = new Map<number, any>(
-    employees.map((employee: any) => [employee.id, employee] as const),
+  const employeesById = new Map<number, Employee>(
+    employees.map((employee) => [employee.id, employee] as const),
   );
   const isHistoricalAtSelectedBranch = (schedule: EmployeeSchedule) => {
     const currentBranchId =
@@ -415,14 +422,14 @@ export const SchedulesView = () => {
   const historicalEmployeeIds = new Set(
     historicalWeekSchedules.map((schedule) => schedule.employeeId),
   );
-  const branchEmployeesById = new Map<number, any>(
+  const branchEmployeesById = new Map<number, BranchEmployee>(
     employees
       .filter(
-        (emp: any) =>
+        (emp) =>
           !isGerenteRole(emp) &&
           (emp.branchId === branchId || emp.branchId === null),
       )
-      .map((emp: any) => [emp.id, emp] as const),
+      .map((emp) => [emp.id, emp] as const),
   );
   weekSchedules.forEach((schedule) => {
     if (branchEmployeesById.has(schedule.employeeId)) return;
@@ -431,11 +438,13 @@ export const SchedulesView = () => {
       name: schedule.employeeName,
       lastName: null,
       branchId: schedule.employeeBranchId,
+      hasCv: false,
+      roleNames: [],
     });
   });
   const branchEmployees = [...branchEmployeesById.values()];
 
-  const filteredEmployees = branchEmployees.filter((emp: any) =>
+  const filteredEmployees = branchEmployees.filter((emp) =>
     `${emp.name} ${emp.lastName ?? ""}`
       .toLowerCase()
       .includes(search.trim().toLowerCase()),
@@ -461,7 +470,7 @@ export const SchedulesView = () => {
   // Empleados sin ningún turno esta semana (para el selector del modal,
   // igual que antes evitamos duplicar turnos por accidente en el mismo día)
   const employeesWithoutSchedule = employees.filter(
-    (emp: any) =>
+    (emp) =>
       !isGerenteRole(emp) &&
       !schedules.some(
         (s) => s.employeeId === emp.id && s.shiftDate === form.shiftDate,
@@ -479,13 +488,13 @@ export const SchedulesView = () => {
   // Si venimos desde "Registrar Empleado", abrimos el modal de ese empleado.
   // modal automáticamente con ese empleado y SU sede real (no la que
   // estuviera puesta por defecto en el dropdown).
-  useEffect(() => {
+  useEffect(() => deferEffect(() => {
     if (employees.length === 0) return;
     const employeeId = consumeNavigationTarget(
       pendingNavigationKeys.scheduleEmployee,
     );
     if (employeeId === null) return;
-    const employee = employees.find((emp: any) => emp.id === employeeId);
+    const employee = employees.find((emp) => emp.id === employeeId);
     if (!employee) return;
 
     const employeeBranchId = employee.branchId ?? branchId;
@@ -497,9 +506,9 @@ export const SchedulesView = () => {
 
     openCreateModal(employeeId, employeeBranchId, emptyForm.shiftDate);
 
-  }, [employees, isGerente, selectedBranchId, branchId]);
+  }), [employees, isGerente, selectedBranchId, branchId, openCreateModal, setSelectedBranchId]);
 
-  const selectedEmployee = employees.find((e: any) => e.id === form.employeeId);
+  const selectedEmployee = employees.find((e) => e.id === form.employeeId);
   const selectedBranchHours =
     branchHours?.branchId === branchId ? branchHours : null;
   const selectedRole = roles.find((r) => r.id === form.roleId);
@@ -527,14 +536,12 @@ export const SchedulesView = () => {
   };
 
   const handleSubmit = async () => {
-    if (!form.employeeId || !form.roleId) {
-      setFormError("Selecciona empleado y rol.");
-      return;
-    }
-    if (!form.branchId) {
-      setFormError("Selecciona una sede para el turno.");
-      return;
-    }
+    const errors: { employeeId?: string; branchId?: string; roleId?: string } = {};
+    if (!form.employeeId) errors.employeeId = "Selecciona un empleado.";
+    if (!form.branchId) errors.branchId = "Selecciona una sede para el turno.";
+    if (!form.roleId) errors.roleId = "Selecciona un rol.";
+    setScheduleFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
     setSaving(true);
     setFormError("");
     try {
@@ -603,19 +610,21 @@ export const SchedulesView = () => {
       endTime: hours.close,
     });
     setFormError("");
+    setScheduleFieldErrors({});
     setIsModalOpen(true);
   };
 
   // --- Guardado masivo: mismo turno para varios días de la semana ---
   const handleBulkSubmit = async () => {
+    const nextFieldErrors: { roleId?: string; days?: string } = {};
     if (!bulkForm.roleId) {
-      setBulkError(["Selecciona un rol."]);
-      return;
+      nextFieldErrors.roleId = "Selecciona un rol.";
     }
     if (bulkForm.days.length === 0) {
-      setBulkError(["Selecciona al menos un día."]);
-      return;
+      nextFieldErrors.days = "Selecciona al menos un día.";
     }
+    setBulkFieldErrors(nextFieldErrors);
+    if (Object.keys(nextFieldErrors).length > 0) return;
     if (!branchId) {
       setBulkError(["Selecciona una sede."]);
       return;
@@ -629,15 +638,15 @@ export const SchedulesView = () => {
     let targetEmployees =
       bulkForm.employeeId === 0
         ? branchEmployees
-        : branchEmployees.filter((e: any) => e.id === bulkForm.employeeId);
+        : branchEmployees.filter((e) => e.id === bulkForm.employeeId);
 
     // El Gerente decide manualmente si este lote de turnos exige CV,
     // sin importar la configuración individual de cada rol.
     const skippedForCv: string[] = [];
     if (bulkForm.requiresCv) {
-      const withCv = targetEmployees.filter((e: any) => e.hasCv);
-      const withoutCv = targetEmployees.filter((e: any) => !e.hasCv);
-      withoutCv.forEach((e: any) =>
+      const withCv = targetEmployees.filter((e) => e.hasCv);
+      const withoutCv = targetEmployees.filter((e) => !e.hasCv);
+      withoutCv.forEach((e) =>
         skippedForCv.push(`${e.name} ${e.lastName ?? ""}`.trim()),
       );
       targetEmployees = withCv;
@@ -659,16 +668,16 @@ export const SchedulesView = () => {
       // cualquier sede (no solo la actual), para detectar choques.
       const crossBranchByEmployee = new Map<number, EmployeeSchedule[]>();
       await Promise.all(
-        targetEmployees.map(async (emp: any) => {
+        targetEmployees.map(async (emp) => {
           const allShifts = await employeeScheduleService.getByEmployee(emp.id);
           crossBranchByEmployee.set(emp.id, allShifts);
         }),
       );
 
-      const jobs: { emp: any; dateISO: string }[] = [];
+      const jobs: { emp: BranchEmployee; dateISO: string }[] = [];
       const skippedForConflict: string[] = [];
 
-      targetEmployees.forEach((emp: any) => {
+      targetEmployees.forEach((emp) => {
         bulkForm.days.forEach((dayIndex) => {
           const dateISO = toISODate(weekDays[dayIndex]);
 
@@ -782,6 +791,7 @@ export const SchedulesView = () => {
   };
 
   const toggleBulkDay = (dayIndex: number) => {
+    setBulkFieldErrors((current) => ({ ...current, days: "" }));
     setBulkForm((prev) => ({
       ...prev,
       days: prev.days.includes(dayIndex)
@@ -809,22 +819,24 @@ export const SchedulesView = () => {
     }
   };
 
-  const openTransferModal = (emp: any) => {
+  const openTransferModal = (emp: BranchEmployee) => {
     setTransferTarget(emp);
     setTransferBranchId("");
     setTransferError("");
+    setTransferBranchError("");
     setTransferSuccessMsg("");
   };
 
   const handleConfirmTransfer = async () => {
     if (!transferTarget || !transferBranchId) {
-      setTransferError("Selecciona la sede destino.");
+      setTransferBranchError("Selecciona la sede destino.");
       return;
     }
     if (transferBranchId === transferTarget.branchId) {
-      setTransferError("Esa ya es la sede actual del empleado.");
+      setTransferBranchError("Esa ya es la sede actual del empleado.");
       return;
     }
+    setTransferBranchError("");
     setTransferring(true);
     setTransferError("");
     try {
@@ -908,9 +920,9 @@ export const SchedulesView = () => {
             }}
             disabled={!branchId || mailSending || weekSchedules.length === 0}
             className="w-full rounded-lg border border-[#EA1D2C] bg-white px-5 py-2.5 font-semibold text-[#EA1D2C] transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
-            title="Enviar a cada empleado los turnos de la semana visible"
+            title={translateCopy("Enviar a cada empleado los turnos de la semana visible")}
           >
-            Enviar horarios por correo
+            {translateCopy("Enviar horarios por correo")}
           </button>
           <button
             onClick={async () => {
@@ -926,6 +938,7 @@ export const SchedulesView = () => {
                 endTime: hours.close,
               });
               setBulkError([]);
+              setBulkFieldErrors({});
               setIsBulkModalOpen(true);
             }}
             disabled={!branchId}
@@ -937,7 +950,7 @@ export const SchedulesView = () => {
 
       {mailMessage && (
         <div role="status" className={`mb-3 rounded-xl px-4 py-3 text-sm ${mailMessage.error ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>
-          {mailMessage.text}
+          {translateCopy(mailMessage.text)}
         </div>
       )}
       {error && (
@@ -988,7 +1001,7 @@ export const SchedulesView = () => {
                      {translateCopy("Ningún empleado coincide con la búsqueda.")} </td>
                 </tr>
               )}
-              {visibleEmployees.map((emp: any) => (
+              {visibleEmployees.map((emp) => (
                 <tr key={emp.id} className="border-t border-gray-100">
                   <td className="sticky left-0 z-10 bg-white px-3 xl:px-4 py-4">
                     <p className="font-semibold text-[#081A38] text-sm xl:text-base">
@@ -1182,7 +1195,7 @@ export const SchedulesView = () => {
                   onChange={(e) => {
                     const empId = Number(e.target.value);
                     const selected = employees.find(
-                      (emp: any) => emp.id === empId,
+                      (emp) => emp.id === empId,
                     );
                     setForm({
                       ...form,
@@ -1192,15 +1205,18 @@ export const SchedulesView = () => {
                         : (myBranch?.id ?? 0),
                     });
                     setFormError("");
+                    setScheduleFieldErrors((current) => ({ ...current, employeeId: "", branchId: "" }));
                   }}
+                  aria-invalid={!!scheduleFieldErrors.employeeId}
                 >
                   <option value={0}>{translateCopy("Selecciona...")}</option>
-                  {employeesWithoutSchedule.map((emp: any) => (
+                  {employeesWithoutSchedule.map((emp) => (
                     <option key={emp.id} value={emp.id}>
                       {emp.name} {emp.lastName ?? ""}
                     </option>
                   ))}
                 </select>
+                {scheduleFieldErrors.employeeId && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(scheduleFieldErrors.employeeId)}</p>}
               </div>
               <div>
                 <label className="text-xs font-semibold text-gray-500">
@@ -1212,6 +1228,7 @@ export const SchedulesView = () => {
                     onChange={async (e) => {
                       const newId = Number(e.target.value);
                       setForm((f) => ({ ...f, branchId: newId }));
+                      setScheduleFieldErrors((current) => ({ ...current, branchId: "" }));
                       if (!newId) return;
                       const hours = await loadBranchHours(newId);
                       if (!hours) {
@@ -1240,6 +1257,7 @@ export const SchedulesView = () => {
                     className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-500 bg-gray-100"
                   />
                 )}
+                {scheduleFieldErrors.branchId && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(scheduleFieldErrors.branchId)}</p>}
               </div>
 
               <div>
@@ -1248,9 +1266,8 @@ export const SchedulesView = () => {
                 <select
                   className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
                   value={form.roleId}
-                  onChange={(e) =>
-                    setForm({ ...form, roleId: Number(e.target.value) })
-                  }
+                  onChange={(e) => { setForm({ ...form, roleId: Number(e.target.value) }); setScheduleFieldErrors((current) => ({ ...current, roleId: "" })); }}
+                  aria-invalid={!!scheduleFieldErrors.roleId}
                 >
                   <option value={0}>{translateCopy("Selecciona...")}</option>
                   {operationalRoles.map((role) => (
@@ -1259,6 +1276,7 @@ export const SchedulesView = () => {
                     </option>
                   ))}
                 </select>
+                {scheduleFieldErrors.roleId && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(scheduleFieldErrors.roleId)}</p>}
               </div>
 
               {needsCvWarning && (
@@ -1373,7 +1391,7 @@ export const SchedulesView = () => {
                   }
                 >
                   <option value={0}>{translateCopy("Todos los empleados de esta sede")}</option>
-                  {branchEmployees.map((emp: any) => (
+                  {branchEmployees.map((emp) => (
                     <option key={emp.id} value={emp.id}>
                       {emp.name} {emp.lastName ?? ""}
                     </option>
@@ -1387,9 +1405,8 @@ export const SchedulesView = () => {
                 <select
                   className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
                   value={bulkForm.roleId}
-                  onChange={(e) =>
-                    setBulkForm({ ...bulkForm, roleId: Number(e.target.value) })
-                  }
+                  onChange={(e) => { setBulkForm({ ...bulkForm, roleId: Number(e.target.value) }); setBulkFieldErrors((current) => ({ ...current, roleId: "" })); }}
+                  aria-invalid={!!bulkFieldErrors.roleId}
                 >
                   <option value={0}>{translateCopy("Selecciona...")}</option>
                   {operationalRoles.map((role) => (
@@ -1398,6 +1415,7 @@ export const SchedulesView = () => {
                     </option>
                   ))}
                 </select>
+                {bulkFieldErrors.roleId && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(bulkFieldErrors.roleId)}</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -1454,6 +1472,7 @@ export const SchedulesView = () => {
                     );
                   })}
                 </div>
+                {bulkFieldErrors.days && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(bulkFieldErrors.days)}</p>}
                 <p className="text-[10px] text-gray-400 mt-2">
                    {translateCopy("Si un empleado ya tiene turno en alguno de estos días, ese día se omite automáticamente (no se duplica).")} </p>
               </div>
@@ -1516,10 +1535,9 @@ export const SchedulesView = () => {
                 className="w-full border border-gray-300 rounded-xl px-3 py-2.5 mt-1 text-gray-900 bg-white"
                 value={transferBranchId}
                 onChange={(e) =>
-                  setTransferBranchId(
-                    e.target.value ? Number(e.target.value) : "",
-                  )
+                  { setTransferBranchId(e.target.value ? Number(e.target.value) : ""); setTransferBranchError(""); }
                 }
+                aria-invalid={!!transferBranchError}
               >
                 <option value="">{translateCopy("Selecciona...")}</option>
                 {allBranches
@@ -1530,6 +1548,7 @@ export const SchedulesView = () => {
                     </option>
                   ))}
               </select>
+              {transferBranchError && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(transferBranchError)}</p>}
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <button
@@ -1550,27 +1569,25 @@ export const SchedulesView = () => {
       </Dialog>
       <Dialog
         isOpen={mailConfirmOpen}
-        title="Enviar horarios de la semana"
+        title={translateCopy("Enviar horarios de la semana")}
         onClose={() => { if (!mailSending) setMailConfirmOpen(false); }}
       >
         <p className="text-sm leading-6 text-slate-600">
-          Vas a enviar por correo los turnos de <strong>{formatDayHeader(weekStart)} a {formatDayHeader(weekEnd)}</strong>
-          {" "}de la sede seleccionada. Cada empleado recibirá solamente su propio horario.
-          El sistema omitirá a quienes no tengan correo registrado.
+          {translateCopy(`Vas a enviar por correo los turnos de ${formatDayHeader(weekStart)} a ${formatDayHeader(weekEnd)} de la sede seleccionada. Cada empleado recibirá solamente su propio horario. El sistema omitirá a quienes no tengan correo registrado.`)}
         </p>
         <p className="mt-3 text-sm font-medium text-slate-700">
-          Empleados con turnos: {new Set(weekSchedules.map((shift) => shift.employeeId)).size}
+          {translateCopy(`Empleados con turnos: ${new Set(weekSchedules.map((shift) => shift.employeeId)).size}`)}
         </p>
         <div className="mt-6 flex flex-wrap justify-end gap-3">
           <button type="button" disabled={mailSending}
             onClick={() => setMailConfirmOpen(false)}
             className="rounded-lg border border-slate-200 px-5 py-2.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-            Cancelar
+            {translateCopy("Cancelar")}
           </button>
           <button type="button" disabled={mailSending || !branchId || weekSchedules.length === 0}
             onClick={() => void sendWeekSchedulesByEmail()}
             className="rounded-lg bg-[#EA1D2C] px-5 py-2.5 font-semibold text-white hover:bg-red-700 disabled:opacity-50">
-            {mailSending ? "Enviando correos..." : "Confirmar envío"}
+            {mailSending ? translateCopy("Enviando correos...") : translateCopy("Confirmar envío")}
           </button>
         </div>
       </Dialog>

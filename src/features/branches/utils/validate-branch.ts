@@ -77,8 +77,8 @@ export function validateBranchForm({
     errors.name = "El nombre es obligatorio.";
   } else if (trimmedName.length < 3) {
     errors.name = "El nombre debe tener al menos 3 caracteres.";
-  } else if (trimmedName.length > 100) {
-    errors.name = "El nombre no puede superar los 100 caracteres.";
+  } else if (trimmedName.length > 50) {
+    errors.name = "El nombre no puede superar los 50 caracteres.";
   } else if (isPlaceholder(trimmedName)) {
     errors.name = "Ingresa un nombre real de sede.";
   } else if (isRepetitivePattern(trimmedName)) {
@@ -117,14 +117,12 @@ export function validateBranchForm({
     errors.phone = "El teléfono es obligatorio.";
   } else if (isPlaceholder(trimmedPhone)) {
     errors.phone = "Ingresa un teléfono real.";
-  } else if (!/^\+?[\d\s-]{7,15}$/.test(trimmedPhone)) {
+  } else if (!/^(?:\d{7}|\d{10})$/.test(trimmedPhone)) {
     errors.phone =
-      "El teléfono debe tener entre 7 y 15 dígitos (puede incluir +, espacios o guiones).";
+      "El teléfono debe tener 7 dígitos (fijo) o 10 dígitos (celular), sin espacios ni guiones.";
   } else {
-    const digitsOnly = trimmedPhone.replace(/\D/g, "");
-    if (digitsOnly.length < 7 || digitsOnly.length > 15) {
-      errors.phone = "El teléfono debe tener entre 7 y 15 dígitos.";
-    } else if (isRepetitivePattern(digitsOnly)) {
+    const digitsOnly = trimmedPhone;
+    if (isRepetitivePattern(digitsOnly)) {
       errors.phone = "El teléfono no parece válido, revísalo.";
     }
   }

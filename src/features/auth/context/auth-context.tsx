@@ -5,12 +5,13 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import type { UserSession } from "../types/auth.types";
-
-const SESSION_KEY = "sabor-express-session";
+import { authService } from "../services/auth.service";
+import { setInMemorySession } from "../session-memory";
 
 interface AuthContextValue {
   session: UserSession | null;
@@ -22,29 +23,84 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-function readSession(): UserSession | null {
-  if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem(SESSION_KEY);
-  return raw ? (JSON.parse(raw) as UserSession) : null;
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<UserSession | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
+  const authVersion = useRef(0);
 
   useEffect(() => {
-    setSession(readSession());
-    setIsHydrated(true);
+    let active = true;
+    const bootstrapVersion = authVersion.current;
+    const handleOffline = () => {
+      authVersion.current += 1;
+      setInMemorySession(null);
+      setSession(null);
+      setIsHydrated(true);
+    };
+
+    window.addEventListener("offline", handleOffline);
+    try {
+      // Retira la sesión antigua que guardaba el JWT en almacenamiento accesible a JavaScript.
+      localStorage.removeItem("sabor-express-session");
+    } catch {
+      // El almacenamiento del navegador puede estar deshabilitado.
+    }
+
+    if (navigator.onLine === false) {
+      handleOffline();
+    } else {
+      void authService.getCurrentSession()
+        .then((restoredSession) => {
+          if (!active || authVersion.current !== bootstrapVersion) return;
+          setInMemorySession(restoredSession);
+          setSession(restoredSession);
+        })
+        .catch(() => {
+          if (!active || authVersion.current !== bootstrapVersion) return;
+          setInMemorySession(null);
+          setSession(null);
+        })
+        .finally(() => {
+          if (active) setIsHydrated(true);
+        });
+    }
+
+    const handleSessionRefreshed = (event: Event) => {
+      const refreshed = (event as CustomEvent<UserSession>).detail;
+      if (!refreshed || navigator.onLine === false) return;
+      authVersion.current += 1;
+      setInMemorySession(refreshed);
+      setSession(refreshed);
+    };
+    const handleSessionExpired = () => {
+      authVersion.current += 1;
+      setInMemorySession(null);
+      setSession(null);
+    };
+    window.addEventListener("sabor-express:session-refreshed", handleSessionRefreshed);
+    window.addEventListener("sabor-express:auth-expired", handleSessionExpired);
+    return () => {
+      active = false;
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("sabor-express:session-refreshed", handleSessionRefreshed);
+      window.removeEventListener("sabor-express:auth-expired", handleSessionExpired);
+    };
   }, []);
 
   const login = useCallback((newSession: UserSession) => {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(newSession));
+    if (navigator.onLine === false) {
+      throw new Error("El servicio no está disponible en este momento. Intenta de nuevo en unos minutos.");
+    }
+    authVersion.current += 1;
+    setInMemorySession(newSession);
     setSession(newSession);
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem(SESSION_KEY);
+    authVersion.current += 1;
+    setInMemorySession(null);
     setSession(null);
+    void authService.logout();
   }, []);
 
   return (

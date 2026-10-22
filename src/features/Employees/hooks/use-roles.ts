@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { http } from "@/config/api";
 import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useAdminDataChanged } from "@/features/Dashboard/hooks/use-admin-data-changed";
@@ -42,9 +43,7 @@ export function useRoles() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchRoles();
-  }, [fetchRoles]);
+  useEffect(() => deferEffect(() => void fetchRoles()), [fetchRoles]);
 
   const refreshAfterChange = useCallback(() => {
     void fetchRoles(true);

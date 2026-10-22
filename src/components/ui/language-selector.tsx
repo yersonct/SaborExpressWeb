@@ -55,13 +55,12 @@ export const LanguageSelector = ({
     const languageKey = preferenceStorageKey("language", session?.userId);
     localStorage.setItem(languageKey, language);
     await i18n.changeLanguage(language);
-    document.documentElement.lang = language;
     window.dispatchEvent(new CustomEvent("sabor-express-language-changed", {
       detail: { language, userId: session?.userId ?? null },
     }));
     setIsOpen(false);
     try {
-      if (session?.token) {
+      if (session) {
         const updated = await userSettingsService.updateLanguage(language);
         if (localStorage.getItem(languageKey) === language) {
           localStorage.setItem(languageKey, updated.language);

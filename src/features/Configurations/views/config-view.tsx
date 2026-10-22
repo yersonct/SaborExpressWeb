@@ -1,8 +1,9 @@
 "use client";
 
 import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
+import { deferEffect } from "@/lib/defer-effect";
 import { translateCopy } from "@/config/copy-translations";
-import { useCallback, useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useRouter } from "next/navigation";
 import { useMyBranch } from "@/features/branches/hooks/use-my-branch";
@@ -14,8 +15,7 @@ import { useBranches } from "@/features/branches/hooks/use-branches";
 import { QRCodeCanvas } from "qrcode.react";
 import { useRealtimeEvents } from "@/features/Dashboard/hooks/use-realtime-events";
 import { useTranslation } from "react-i18next";
-import { Input } from "@/components/ui/input";
-import { sanitizeNumber, finalizeNumber } from "@/lib/numeric-input";
+import { sanitizeNumber } from "@/lib/numeric-input";
 
 const inputClass =
   "w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-[#111827] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#111827] focus:border-transparent transition-all";
@@ -50,12 +50,12 @@ export const ConfigView = () => {
   // El QR del gerente siempre corresponde a una sede específica.
   const [qrBranchId, setQrBranchId, qrBranchReady] = useRememberedUiState<number | "">("settings", "qrBranch", "");
 
-  useEffect(() => {
+  useEffect(() => deferEffect(() => {
     if (!qrBranchReady || !isGerente || branches.length === 0) return;
     if (qrBranchId === "" || !branches.some((b) => b.id === qrBranchId)) {
       setQrBranchId(branches[0].id);
     }
-  }, [branches, isGerente, qrBranchId, qrBranchReady]);
+  }), [branches, isGerente, qrBranchId, qrBranchReady, setQrBranchId]);
 
   const effectiveBranchId = isGerente
     ? qrBranchId === ""
@@ -78,7 +78,6 @@ export const ConfigView = () => {
   } = useBranchOperationalSettings(branch?.id ?? null);
   const [draft, setDraft] =
     useState<UpdateBranchOperationalSettingsPayload | null>(null);
-  const [settingsSavedMsg, setSettingsSavedMsg] = useState("");
   const [isEditingOp, setIsEditingOp] = useState(false);
   const [numText, setNumText] = useState({
     taxRate: "",
@@ -88,10 +87,14 @@ export const ConfigView = () => {
   });
 
   // Cuando llegan (o se guardan) los ajustes, el borrador se reinicia con ellos
-  useEffect(() => {
+  useEffect(() => deferEffect(() => {
     if (isEditingOp) return;
     if (opSettings) {
-      const { branchId, updatedAt, isDefault, ...editable } = opSettings;
+      const editable = Object.fromEntries(
+        Object.entries(opSettings).filter(
+          ([key]) => !["branchId", "updatedAt", "isDefault"].includes(key),
+        ),
+      ) as UpdateBranchOperationalSettingsPayload;
       const configuredCapacity = Number(editable.maxActiveDeliveriesPerCourier);
       const capacity =
         Number.isInteger(configuredCapacity) && configuredCapacity >= 1
@@ -107,23 +110,20 @@ export const ConfigView = () => {
     } else {
       setDraft(null);
     }
-  }, [opSettings, isEditingOp]);
+  }), [opSettings, isEditingOp]);
 
-  const refreshChangedBranchSettings = useCallback(
-    (eventName?: string, ...args: unknown[]) => {
-      if (
-        eventName === "BranchOperationalSettingsChanged" &&
-        branch?.id != null &&
-        Number(args[0]) === branch.id
-      ) {
-        void reloadOpSettings(true);
-      }
-    },
-    [branch?.id, reloadOpSettings],
-  );
-  const refreshSettingsAfterReconnect = useCallback(() => {
+  const refreshChangedBranchSettings = (eventName?: string, ...args: unknown[]) => {
+    if (
+      eventName === "BranchOperationalSettingsChanged" &&
+      branch?.id != null &&
+      Number(args[0]) === branch.id
+    ) {
+      void reloadOpSettings(true);
+    }
+  };
+  const refreshSettingsAfterReconnect = () => {
     if (branch?.id != null) void reloadOpSettings(true);
-  }, [branch?.id, reloadOpSettings]);
+  };
 
   useRealtimeEvents(
     session?.userId ?? null,
@@ -142,7 +142,6 @@ export const ConfigView = () => {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [status, setStatus] = useState(true);
-  const [savedMsg, setSavedMsg] = useState("");
 
   // Datos reales de la sesión — nada quemado. `identifier` es el correo con
   // el que se inició sesión (así se guarda en el login). `roles` viene del
@@ -175,6 +174,7 @@ export const ConfigView = () => {
   const [pName, setPName] = useState("");
   const [pLastName, setPLastName] = useState("");
   const [pPhone, setPPhone] = useState("");
+  const [profileFieldErrors, setProfileFieldErrors] = useState<{ name?: string; lastName?: string; phone?: string }>({});
   const [profileSavedMsg, setProfileSavedMsg] = useState("");
   const [isEditingProfile, setIsEditingProfile] = useState(false);
 
@@ -186,19 +186,21 @@ export const ConfigView = () => {
     }
   };
 
-  useEffect(() => {
+  useEffect(() => deferEffect(() => {
     resetProfileFields();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile]);
+  }), [profile]);
 
   const handleStartEdit = () => {
     setProfileSavedMsg("");
+    setProfileFieldErrors({});
     setIsEditingProfile(true);
   };
 
   const handleCancelEdit = () => {
     resetProfileFields();
     setProfileSavedMsg("");
+    setProfileFieldErrors({});
     setIsEditingProfile(false);
   };
 
@@ -206,8 +208,16 @@ export const ConfigView = () => {
     e.preventDefault();
     if (!isEditingProfile) return;
     setProfileSavedMsg("");
-    if (!pName.trim()) {
-      alert(translateCopy("El nombre no puede estar vacío."));
+    const errors: { name?: string; lastName?: string; phone?: string } = {};
+    if (!pName.trim()) errors.name = "El nombre es obligatorio.";
+    else if (pName.trim().length < 3) errors.name = "El nombre debe tener al menos 3 caracteres.";
+    else if (/\d/.test(pName)) errors.name = "El nombre no puede contener números.";
+    if (/\d/.test(pLastName)) errors.lastName = "El apellido no puede contener números.";
+    if (pPhone.trim() && !/^(?:\d{7}|\d{10})$/.test(pPhone.trim())) {
+      errors.phone = "El teléfono debe tener 7 dígitos (fijo) o 10 dígitos (celular), sin espacios ni guiones.";
+    }
+    setProfileFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
       return;
     }
     try {
@@ -231,27 +241,26 @@ export const ConfigView = () => {
     "/letter" +
     (effectiveBranchId ? `?branchId=${effectiveBranchId}` : "");
 
-  useEffect(() => {
+  useEffect(() => deferEffect(() => {
     if (branch) {
       setName(branch.name);
       setAddress(branch.address ?? "");
       setPhone(branch.phone ?? "");
       setStatus(branch.status);
     }
-  }, [branch]);
+  }), [branch]);
 
 
   const [isEditingBranch, setIsEditingBranch] = useState(false);
   const [opOpen, setOpOpen] = useState(false);
+  const [branchFieldErrors, setBranchFieldErrors] = useState<Record<string, string>>({});
 
   // Al cambiar de sede, todo vuelve a bloqueado y el acordeón se cierra
-  useEffect(() => {
+  useEffect(() => deferEffect(() => {
     setIsEditingBranch(false);
     setIsEditingOp(false);
     setOpOpen(false);
-    setSavedMsg("");
-    setSettingsSavedMsg("");
-  }, [branch?.id]);
+  }), [branch?.id]);
 
   const resetBranchFields = () => {
     if (branch) {
@@ -265,8 +274,7 @@ export const ConfigView = () => {
   const [successOpen, setSuccessOpen] = useState(false);
 
   const handleStartEditAll = () => {
-    setSavedMsg("");
-    setSettingsSavedMsg("");
+    setBranchFieldErrors({});
     setIsEditingBranch(true);
     setIsEditingOp(true);
     setOpOpen(true); // abre el desplegable para que se vea que también se edita
@@ -274,8 +282,13 @@ export const ConfigView = () => {
 
   const handleCancelEditAll = () => {
     resetBranchFields();
+    setBranchFieldErrors({});
     if (opSettings) {
-      const { branchId, updatedAt, isDefault, ...editable } = opSettings;
+      const editable = Object.fromEntries(
+        Object.entries(opSettings).filter(
+          ([key]) => !["branchId", "updatedAt", "isDefault"].includes(key),
+        ),
+      ) as UpdateBranchOperationalSettingsPayload;
       setDraft(editable);
       setNumText({
         taxRate: String(editable.taxRate ?? 0),
@@ -284,42 +297,60 @@ export const ConfigView = () => {
         maxActive: String(editable.maxActiveDeliveriesPerCourier ?? 4),
       });
     }
-    setSavedMsg("");
-    setSettingsSavedMsg("");
     setIsEditingBranch(false);
     setIsEditingOp(false);
   };
 
   const handleSaveAll = async () => {
-    if (!name.trim()) {
-      alert(
-        translateCopy(
-          "El nombre de la sede no puede estar vacío. Espera a que cargue la información o vuelve a intentar.",
-        ),
-      );
-      return;
+    const errors: Record<string, string> = {};
+    const cleanName = name.trim();
+    const cleanAddress = address.trim();
+    const cleanPhone = phone.trim();
+    if (!cleanName) errors.name = "El nombre de la sede es obligatorio.";
+    else if (cleanName.length > 50) errors.name = "El nombre no puede superar los 50 caracteres.";
+    if (!cleanAddress) errors.address = "La dirección de la sede es obligatoria.";
+    else if (cleanAddress.length < 5) errors.address = "La dirección debe tener al menos 5 caracteres.";
+    else if (cleanAddress.length > 150) errors.address = "La dirección no puede superar los 150 caracteres.";
+    if (!cleanPhone) errors.phone = "El teléfono de la sede es obligatorio.";
+    else if (!/^(?:\d{7}|\d{10})$/.test(cleanPhone)) errors.phone = "El teléfono debe tener 7 dígitos (fijo) o 10 dígitos (celular), sin espacios ni guiones.";
+
+    const taxRate = numText.taxRate.trim();
+    const deliveryFee = numText.deliveryFee.trim();
+    const deliveryRadiusKm = numText.deliveryRadiusKm.trim();
+    const maxActive = numText.maxActive.trim();
+    if (draft && !draft.openingTime) errors.openingTime = "La hora de apertura es obligatoria.";
+    if (draft && !draft.closingTime) errors.closingTime = "La hora de cierre es obligatoria.";
+    if (draft && draft.openingTime && draft.openingTime === draft.closingTime) {
+      errors.closingTime = "La hora de apertura y la de cierre no pueden ser iguales.";
     }
-    if (draft && (!draft.openingTime || !draft.closingTime)) {
-      alert(translateCopy("Debes indicar la hora de apertura y la hora de cierre."));
-      return;
+    if (draft && (!taxRate || !Number.isFinite(Number(taxRate)) || Number(taxRate) < 0 || Number(taxRate) > 100)) {
+      errors.taxRate = "Ingresa un porcentaje entre 0 y 100.";
     }
+    if (draft && (!deliveryFee || !Number.isFinite(Number(deliveryFee)) || Number(deliveryFee) < 0 || !Number.isInteger(Number(deliveryFee)))) {
+      errors.deliveryFee = "Ingresa una tarifa entera igual o mayor que 0.";
+    }
+    if (draft && (!deliveryRadiusKm || !Number.isFinite(Number(deliveryRadiusKm)) || Number(deliveryRadiusKm) <= 0 || Number(deliveryRadiusKm) > 100)) {
+      errors.deliveryRadiusKm = "Ingresa un radio mayor que 0 y máximo 100 km.";
+    }
+    if (draft && (!maxActive || !Number.isInteger(Number(maxActive)) || Number(maxActive) < 1 || Number(maxActive) > 20)) {
+      errors.maxActive = "Ingresa un entero entre 1 y 20.";
+    }
+    setBranchFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
     try {
       if (isGerente) {
         if (!branch) return;
-        await updateBranch(branch.id, { name, address, phone, status });
+        await updateBranch(branch.id, { name: cleanName, address: cleanAddress, phone: cleanPhone, status });
       } else {
-        await updateMyBranch({ name, address, phone, status });
+        await updateMyBranch({ name: cleanName, address: cleanAddress, phone: cleanPhone, status });
       }
       if (draft) {
         await saveOpSettings({
           ...draft,
-          taxRate: Math.min(100, Math.max(0, Number(draft.taxRate) || 0)),
-          deliveryFee: Math.round(Math.max(0, Number(draft.deliveryFee) || 0)),
-          deliveryRadiusKm: Math.min(100, Math.max(0.01, Number(draft.deliveryRadiusKm) || 0.01)),
-          maxActiveDeliveriesPerCourier: Math.min(
-            20,
-            Math.max(1, Math.round(Number(draft.maxActiveDeliveriesPerCourier) || 1)),
-          ),
+          taxRate: Number(taxRate),
+          deliveryFee: Number(deliveryFee),
+          deliveryRadiusKm: Number(deliveryRadiusKm),
+          maxActiveDeliveriesPerCourier: Number(maxActive),
         });
       }
       setIsEditingBranch(false);
@@ -432,27 +463,35 @@ export const ConfigView = () => {
                         {t("configuration.name")}
                       </label>
                       <input
+                        id="profile-name"
                         type="text"
                         value={pName}
-                        onChange={(e) => setPName(e.target.value)}
+                        maxLength={120}
+                        aria-invalid={!!profileFieldErrors.name}
+                        onChange={(e) => { setPName(e.target.value); setProfileFieldErrors((current) => ({ ...current, name: undefined })); }}
                         disabled={!profile || !isEditingProfile}
                         placeholder={
                           profile ? "" : translateCopy("Sin perfil de empleado")
                         }
                         className={`${inputClass} ${!profile || !isEditingProfile ? "bg-gray-50 text-gray-500" : ""}`}
                       />
+                      {profileFieldErrors.name && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(profileFieldErrors.name)}</p>}
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
                         {t("configuration.lastName")}
                       </label>
                       <input
+                        id="profile-last-name"
                         type="text"
                         value={pLastName}
-                        onChange={(e) => setPLastName(e.target.value)}
+                        maxLength={80}
+                        aria-invalid={!!profileFieldErrors.lastName}
+                        onChange={(e) => { setPLastName(e.target.value); setProfileFieldErrors((current) => ({ ...current, lastName: undefined })); }}
                         disabled={!profile || !isEditingProfile}
                         className={`${inputClass} ${!profile || !isEditingProfile ? "bg-gray-50 text-gray-500" : ""}`}
                       />
+                      {profileFieldErrors.lastName && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(profileFieldErrors.lastName)}</p>}
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
@@ -470,12 +509,17 @@ export const ConfigView = () => {
                         {t("configuration.phone")}
                       </label>
                       <input
+                        id="profile-phone"
                         type="tel"
                         value={pPhone}
-                        onChange={(e) => setPPhone(e.target.value)}
+                        maxLength={10}
+                        inputMode="numeric"
+                        aria-invalid={!!profileFieldErrors.phone}
+                        onChange={(e) => { setPPhone(e.target.value.replace(/\D/g, "")); setProfileFieldErrors((current) => ({ ...current, phone: undefined })); }}
                         disabled={!profile || !isEditingProfile}
                         className={`${inputClass} ${!profile || !isEditingProfile ? "bg-gray-50 text-gray-500" : ""}`}
                       />
+                      {profileFieldErrors.phone && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(profileFieldErrors.phone)}</p>}
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
@@ -602,22 +646,29 @@ export const ConfigView = () => {
                         <input
                           type="text"
                           value={name}
-                          onChange={(e) => setName(e.target.value)}
+                          maxLength={50}
+                          aria-invalid={!!branchFieldErrors.name}
+                          onChange={(e) => { setName(e.target.value); setBranchFieldErrors((current) => ({ ...current, name: "" })); }}
                           disabled={!isEditingBranch}
                           className={`${inputClass} ${!isEditingBranch ? "bg-gray-50 text-gray-500" : ""}`}
                         />
+                        {branchFieldErrors.name && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(branchFieldErrors.name)}</p>}
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
                           {translateCopy("Teléfono")}{" "}
                         </label>
                         <input
-                          type="text"
+                          type="tel"
                           value={phone}
-                          onChange={(e) => setPhone(e.target.value)}
+                          maxLength={10}
+                          inputMode="numeric"
+                          aria-invalid={!!branchFieldErrors.phone}
+                          onChange={(e) => { setPhone(e.target.value.replace(/\D/g, "")); setBranchFieldErrors((current) => ({ ...current, phone: "" })); }}
                           disabled={!isEditingBranch}
                           className={`${inputClass} ${!isEditingBranch ? "bg-gray-50 text-gray-500" : ""}`}
                         />
+                        {branchFieldErrors.phone && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(branchFieldErrors.phone)}</p>}
                       </div>
                       <div className="md:col-span-2">
                         <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
@@ -626,10 +677,13 @@ export const ConfigView = () => {
                         <input
                           type="text"
                           value={address}
-                          onChange={(e) => setAddress(e.target.value)}
+                          maxLength={150}
+                          aria-invalid={!!branchFieldErrors.address}
+                          onChange={(e) => { setAddress(e.target.value); setBranchFieldErrors((current) => ({ ...current, address: "" })); }}
                           disabled={!isEditingBranch}
                           className={`${inputClass} ${!isEditingBranch ? "bg-gray-50 text-gray-500" : ""}`}
                         />
+                        {branchFieldErrors.address && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(branchFieldErrors.address)}</p>}
                       </div>
                     </div>
 
@@ -762,9 +816,9 @@ export const ConfigView = () => {
                                         value={draft[field]}
                                         disabled={!isEditingOp}
                                         onChange={(e) =>
-                                          patch({
+                                          { setBranchFieldErrors((current) => ({ ...current, [field]: "" })); patch({
                                             [field]: e.target.value,
-                                          } as Partial<UpdateBranchOperationalSettingsPayload>)
+                                          } as Partial<UpdateBranchOperationalSettingsPayload>); }
                                         }
                                         className={`${inputClass} ${!isEditingOp ? "bg-gray-50 text-gray-500" : ""}`}
                                       />
@@ -781,37 +835,22 @@ export const ConfigView = () => {
                                         onChange={(e) => {
                                           const clean = sanitizeNumber(
                                             e.target.value,
-                                            rules[key],
+                                            { ...rules[key], max: Number.MAX_SAFE_INTEGER },
                                           );
                                           setNumText((p) => ({
                                             ...p,
                                             [key]: clean,
                                           }));
+                                          setBranchFieldErrors((current) => ({ ...current, [key]: "" }));
                                           patch({
                                             [key]: Number(clean) || 0,
                                           } as Partial<UpdateBranchOperationalSettingsPayload>);
                                         }}
-                                        onBlur={() => {
-                                          const n = Math.min(
-                                            20,
-                                            Math.max(
-                                              1,
-                                              Math.round(
-                                                Number(numText.maxActive) || 1,
-                                              ),
-                                            ),
-                                          );
-                                          setNumText((p) => ({
-                                            ...p,
-                                            maxActive: String(n),
-                                          }));
-                                          patch({
-                                            maxActiveDeliveriesPerCourier: n,
-                                          });
-                                        }}
+                                        aria-invalid={!!branchFieldErrors[key]}
                                         className={`${inputClass} ${!isEditingOp ? "bg-gray-50 text-gray-500" : ""}`}
                                       />
                                     )}
+                                    {branchFieldErrors[field] && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(branchFieldErrors[field])}</p>}
                                   </div>
                                 );
                               })}
@@ -874,7 +913,7 @@ export const ConfigView = () => {
                                   onChange={(e) => {
                                     const clean = sanitizeNumber(
                                       e.target.value,
-                                      { decimals: 0, max: 20 },
+                                      { decimals: 0, max: Number.MAX_SAFE_INTEGER },
                                     );
                                     setNumText((p) => ({
                                       ...p,
@@ -884,25 +923,12 @@ export const ConfigView = () => {
                                       maxActiveDeliveriesPerCourier:
                                         Number(clean) || 0,
                                     });
+                                    setBranchFieldErrors((current) => ({ ...current, maxActive: "" }));
                                   }}
-                                  onBlur={() => {
-                                    const n = Math.min(
-                                      20,
-                                      Math.max(
-                                        1,
-                                        Math.round(
-                                          Number(numText.maxActive) || 1,
-                                        ),
-                                      ),
-                                    );
-                                    setNumText((p) => ({
-                                      ...p,
-                                      maxActive: String(n),
-                                    }));
-                                    patch({ maxActiveDeliveriesPerCourier: n });
-                                  }}
+                                  aria-invalid={!!branchFieldErrors.maxActive}
                                   className={`${inputClass} delivery-assignment-input`}
                                 />
+                                {branchFieldErrors.maxActive && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(branchFieldErrors.maxActive)}</p>}
                                 <p className="delivery-assignment-muted mt-1 text-[11px]">
                                   {translateCopy(
                                     "Configura entre 1 y 20 pedidos simultáneos.",

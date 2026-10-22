@@ -7,12 +7,10 @@ export interface UserSession {
   userId: number;
   identifier: string;
   roles: string[];
-  token: string;
-  refreshToken: string;
+  employeeId: number | null;
 }
 
 
  export interface ForgotPasswordFlowProps {
-  onNotify: (msg: string, type: "success" | "error") => void;
   onSuccess: (msg: string) => void;
 }

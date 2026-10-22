@@ -6,10 +6,11 @@ import { notificationService } from "@/features/Notifications/services/notificat
 import {
   reportNetworkAvailable,
   reportNetworkUnavailable,
+  SERVER_BASE_URL,
 } from "@/config/api";
+import { hasInMemorySession } from "@/features/auth/session-memory";
 
-const HUB_URL = `${(process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "")}/hubs/notifications`;
-const SESSION_KEY = "sabor-express-session";
+const HUB_URL = `${(SERVER_BASE_URL ?? "").replace(/\/+$/, "")}/hubs/notifications`;
 type EventCallback = (eventName?: string, ...args: unknown[]) => void;
 type ReconnectCallback = () => void;
 export type RealtimeConnectionStatus = "disconnected" | "connecting" | "connected";
@@ -70,12 +71,7 @@ function isUnauthorizedSignalrError(error: unknown): boolean {
 }
 
 function hasStoredSession(): boolean {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    return Boolean(raw && JSON.parse(raw)?.token);
-  } catch {
-    return false;
-  }
+  return hasInMemorySession();
 }
 
 function notifyReconnected(userId: number) {
@@ -154,11 +150,7 @@ async function startConnection(
 function createConnection(userId: number) {
   const connection = new signalR.HubConnectionBuilder()
     .withUrl(HUB_URL, {
-      accessTokenFactory: () => {
-        const raw = localStorage.getItem("sabor-express-session");
-        return raw ? (JSON.parse(raw).token ?? "") : "";
-      },
-      withCredentials: false,
+      withCredentials: true,
     })
     .withAutomaticReconnect()
     .configureLogging(signalR.LogLevel.Critical)

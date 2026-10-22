@@ -6,11 +6,10 @@ import {
 
 export type DateRangeOption = "hoy" | "ayer" | "semana" | "mes";
 
-export function buildDateRange(option: DateRangeOption): {
+export function buildDateRange(option: DateRangeOption, today = getColombiaDayKey()!): {
   fromDate: string;
   toDate: string;
 } {
-  const today = getColombiaDayKey()!;
   const firstDay =
     option === "hoy"
       ? today

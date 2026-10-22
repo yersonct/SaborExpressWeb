@@ -8,10 +8,26 @@
   --brand-primary-hover: #d11a28;
   --brand-navy: #102b54;
   --sidebar-background: #102b54;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
 }
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 html, body {
+  width: 100%;
+  max-width: 100%;
   min-height: 100%;
 }
+
+body { overflow-x: clip; }
 
 .login-screen {
   height: 100vh;
@@ -28,22 +44,24 @@ html, body {
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
 }
 
 body {
   background: var(--app-background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
 }
+
+code, kbd, samp, pre { font-family: var(--font-code); }
+img, video, canvas, svg { max-width: 100%; }
+input, select, textarea, button { font: inherit; }
+input, select, textarea { max-width: 100%; }
+pre { max-width: 100%; overflow-x: auto; }
 
 .app-page-background,
 html[data-theme="light"] .app-page-background,
@@ -74,6 +92,31 @@ html[data-theme="light"] {
   height: 100vh;
   height: 100dvh;
   overscroll-behavior: contain;
+}
+
+.app-main {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app-main > * { min-width: 0; }
+
+@media (max-width: 767px) {
+  .app-main table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-main :where(input, select, textarea) { min-width: 0; }
+}
+
+@media (max-width: 380px) {
+  .app-main { overflow-wrap: anywhere; }
 }
 
 @media (max-width: 1023px) {
