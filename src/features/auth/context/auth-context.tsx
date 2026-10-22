@@ -46,11 +46,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // El almacenamiento del navegador puede estar deshabilitado.
     }
 
-const isLoginPage =
-  window.location.pathname === "/login" ||
-  window.location.pathname.startsWith("/login/");
 
-if (isLoginPage) {
+
+const pathname = window.location.pathname;
+
+const isPublicPage = ["/login", "/letter"].some(
+  (path) => pathname === path || pathname.startsWith(`${path}/`),
+);
+
+if (isPublicPage) {
   setIsHydrated(true);
 } else if (navigator.onLine === false) {
   handleOffline();
