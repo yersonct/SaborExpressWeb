@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { categoryService } from "../services/category.service";
 import type {
   Category,
@@ -44,9 +45,7 @@ export function useCategories() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchCategories();
-  }, [fetchCategories]);
+  useEffect(() => deferEffect(() => void fetchCategories()), [fetchCategories]);
 
   const refreshImmediately = useCallback(() => {
     void fetchCategories(true);

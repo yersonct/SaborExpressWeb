@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { useAuth } from "@/features/auth/hooks/use-auth";
+import { deferEffect } from "@/lib/defer-effect";
 
 /**
  * Recuerda SOLO preferencias primitivas de la interfaz (pestañas, filtros,
@@ -54,7 +55,7 @@ export function useRememberedUiState<T extends Primitive>(
     value: defaultValue,
   });
 
-  useEffect(() => {
+  useEffect(() => deferEffect(() => {
     if (storageKey === null) {
       setSnapshot({ key: null, value: defaultValue });
       return;
@@ -70,7 +71,7 @@ export function useRememberedUiState<T extends Primitive>(
       // Almacenamiento bloqueado o valor corrupto: seguimos con el predeterminado.
     }
     setSnapshot({ key: storageKey, value: restored });
-  }, [storageKey, defaultValue]);
+  }), [storageKey, defaultValue]);
 
   const ready = storageKey !== null && snapshot.key === storageKey;
   const value = ready ? snapshot.value : defaultValue;

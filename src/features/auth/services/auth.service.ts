@@ -1,12 +1,12 @@
+import axios from "axios";
 import { http } from "@/config/api";
 import type { LoginCredentials, UserSession } from "../types/auth.types";
 
 interface LoginApiResponse {
   userId: number;
-  token: string;
   roles: string[];
   identifier: string;
-  refreshToken: string;
+  employeeId?: number | null;
 }
 
 interface VerifyResetCodeResponse {
@@ -38,9 +38,36 @@ export const authService = {
       userId: data.userId,
       identifier: data.identifier,
       roles: data.roles,
-      token: data.token,
-      refreshToken: data.refreshToken,
+      employeeId: data.employeeId ?? null,
     };
+  },
+
+  getCurrentSession: async (): Promise<UserSession> => {
+    // Usa el cliente compartido para renovar la cookie de acceso si expiró.
+    const { data } = await http.get<LoginApiResponse>("/Auth/session", {
+      timeout: 8000,
+    });
+    return {
+      userId: data.userId,
+      identifier: data.identifier,
+      roles: data.roles,
+      employeeId: data.employeeId ?? null,
+    };
+  },
+
+  logout: async (): Promise<void> => {
+    try {
+      await axios.post(
+        `${http.defaults.baseURL}/Auth/logout`,
+        {},
+        {
+          withCredentials: true,
+          headers: { "X-Client-App": "admin-web" },
+        },
+      );
+    } catch {
+      // La sesión local se cierra aunque el servidor no esté disponible.
+    }
   },
 
   changePassword: async (
@@ -68,11 +95,15 @@ export const authService = {
       await http.post("/Auth/forgot-password", {
         identifier: identifier.trim(),
       });
-    } catch (err: any) {
-      if (err?.response?.status === 429) {
-        const retryAfterSeconds = err.response.data?.retryAfterSeconds ?? 0;
+    } catch (err: unknown) {
+      const response = axios.isAxiosError<{
+        retryAfterSeconds?: number;
+        message?: string;
+      }>(err) ? err.response : undefined;
+      if (response?.status === 429) {
+        const retryAfterSeconds = response.data?.retryAfterSeconds ?? 0;
         throw new RateLimitError(
-          err.response.data?.message ??
+          response.data?.message ??
             "Demasiados intentos. Intenta más tarde.",
           retryAfterSeconds,
         );
@@ -124,18 +155,5 @@ export const authService = {
       newPassword: newPassword.trim(),
       confirmPassword: confirmPassword.trim(),
     });
-  },
-  refreshToken: async (refreshToken: string): Promise<UserSession> => {
-    const { data } = await http.post<LoginApiResponse>("/Auth/refresh-token", {
-      refreshToken,
-    });
-
-    return {
-      userId: data.userId,
-      identifier: data.identifier,
-      roles: data.roles,
-      token: data.token,
-      refreshToken: data.refreshToken,
-    };
   },
 };

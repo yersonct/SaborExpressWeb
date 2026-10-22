@@ -1,7 +1,9 @@
 "use client";
 
 import { translateCopy } from "@/config/copy-translations";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useSyncExternalStore } from "react";
+import axios from "axios";
+import { deferEffect } from "@/lib/defer-effect";
 import Image from "next/image";
 import { useTranslation } from "react-i18next";
 import { LanguageSelector } from "@/components/ui/language-selector";
@@ -26,12 +28,21 @@ const FORCE_LOGOUT_MESSAGE_KEYS: Record<string, string> = {
   "employee-deleted": "login.employee_deleted",
 };
 
+const subscribeToHydration = () => () => {};
+const getClientHydrationSnapshot = () => true;
+const getServerHydrationSnapshot = () => false;
+
 export default function LoginView() {
   // SOLUCIÓN 1: Estado para evitar el error de hidratación
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(
+    subscribeToHydration,
+    getClientHydrationSnapshot,
+    getServerHydrationSnapshot,
+  );
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [loading, setLoading] = useState(false);
 
   const [activeView, setActiveView] = useState<"login" | "forgot">("login");
@@ -39,7 +50,7 @@ export default function LoginView() {
   const { login } = useAuth();
   const router = useRouter();
   const { t } = useTranslation();
-  const logos: Record<string, any> = {
+  const logos: Record<string, typeof logo> = {
     es: logo,
   };
 
@@ -59,8 +70,7 @@ export default function LoginView() {
   const logoutMessageShown = useRef(false);
 
   // SOLUCIÓN 1: Esperar a que el componente se monte en el cliente
-  useEffect(() => {
-    setMounted(true);
+  useEffect(() => deferEffect(() => {
     const reason = new URLSearchParams(window.location.search).get("reason");
     const message =
       reason === "session-replaced"
@@ -78,16 +88,27 @@ export default function LoginView() {
         autoClose: false,
       });
     }
-  }, [t]);
+  }), [t]);
 
   const ALLOWED_WEB_ROLES = ["GERENTE", "ADMINISTRADOR"];
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const normalizedEmail = email.trim();
+    const nextErrors: { email?: string; password?: string } = {};
+    if (!normalizedEmail) {
+      nextErrors.email = t("login.email_required");
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      nextErrors.email = t("login.email_invalid");
+    }
+    if (!password) nextErrors.password = t("login.password_required");
+    setFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
     setLoading(true);
 
     try {
-      const session = await authService.login({ email, password });
+      const session = await authService.login({ email: normalizedEmail, password });
 
       const tieneAccesoWeb = session.roles.some((r) =>
         ALLOWED_WEB_ROLES.includes(r),
@@ -109,20 +130,21 @@ export default function LoginView() {
       setTimeout(() => {
         router.push(ROUTES.dashboard);
       }, 400);
-    } catch (error: any) {
+    } catch (error: unknown) {
       // 401 = credenciales incorrectas (error esperado): solo se muestra en el modal.
       // Los demás errores (500, red caída, etc.) sí se registran en consola.
-      if (error?.response?.status !== 401) {
+      const response = axios.isAxiosError(error) ? error.response : undefined;
+      if (response?.status !== 401) {
         console.error(
           "LOGIN ERROR:",
-          error?.response?.status,
-          error?.response?.data,
-          error?.message,
+          response?.status,
+          response?.data,
+          error instanceof Error ? error.message : error,
         );
       }
       setModal({
         isOpen: true,
-        message: error?.message ? translateCopy(error.message) : t("login.error"),
+        message: error instanceof Error ? translateCopy(error.message) : t("login.error"),
         type: "error",
       });
       setLoading(false);
@@ -221,6 +243,7 @@ export default function LoginView() {
           {activeView === "login" ? (
             <form
               onSubmit={onSubmit}
+              noValidate
               className="flex flex-col gap-6 w-full animate-in fade-in zoom-in duration-300"
             >
               <div className="text-center">
@@ -238,8 +261,15 @@ export default function LoginView() {
                 <Input
                   label={t("login.email")}
                   type="email"
+                  id="login-email"
+                  name="email"
+                  autoComplete="username"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setFieldErrors((previous) => ({ ...previous, email: undefined }));
+                  }}
+                  error={fieldErrors.email}
                   className="border-[#E5E7EB] bg-white focus:ring-[#EA1D2C] focus:border-[#EA1D2C] transition-all duration-300"
                   required
                 />
@@ -248,8 +278,15 @@ export default function LoginView() {
                   <Input
                     label={t("login.password")}
                     type="password"
+                    id="login-password"
+                    name="password"
+                    autoComplete="current-password"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setFieldErrors((previous) => ({ ...previous, password: undefined }));
+                    }}
+                    error={fieldErrors.password}
                     className="border-[#E5E7EB] bg-white focus:ring-[#EA1D2C] focus:border-[#EA1D2C] transition-all duration-300"
                     required
                   />
@@ -275,9 +312,6 @@ export default function LoginView() {
             </form>
           ) : (
             <ForgotPasswordFlow
-              onNotify={(msg, type) => {
-                setModal({ isOpen: true, message: msg, type: type });
-              }}
               onSuccess={(msg) => {
                 setModal({ isOpen: true, message: msg, type: "success" });
                 setActiveView("login");

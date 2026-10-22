@@ -24,8 +24,10 @@ interface Step2CodeProps {
 
 interface Step3ResetProps {
   newPassword: string;
+  newPasswordError: string;
   setNewPassword: (value: string) => void;
   confirmPassword: string;
+  confirmPasswordError: string;
   setConfirmPassword: (value: string) => void;
   onNext: () => Promise<void>;
   loading: boolean;
@@ -93,6 +95,8 @@ const Step1Email = ({
         <Input
           label={t("login.email")}
           type="email"
+          autoComplete="email"
+          maxLength={254}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           error={error}
@@ -138,6 +142,9 @@ const Step2Code = ({
           label={t("forgot.code")}
           type="text"
           maxLength={6}
+          inputMode="numeric"
+          pattern="[0-9]{6}"
+          autoComplete="one-time-code"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           error={error}
@@ -161,8 +168,10 @@ const Step2Code = ({
 
 const Step3Reset = ({
   newPassword,
+  newPasswordError,
   setNewPassword,
   confirmPassword,
+  confirmPasswordError,
   setConfirmPassword,
   onNext,
   loading,
@@ -184,9 +193,11 @@ const Step3Reset = ({
         <Input
           label={t("forgot.new_password")}
           type="password"
+          autoComplete="new-password"
+          minLength={8}
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
-          error={error}
+          error={newPasswordError || error}
           className="border-[#E5E7EB] bg-white h-14 text-lg focus:ring-[#EA1D2C] focus:border-[#EA1D2C] transition-all duration-300 group-hover:shadow-md"
           required
         />
@@ -196,8 +207,11 @@ const Step3Reset = ({
         <Input
           label={t("forgot.confirm_password")}
           type="password"
+          autoComplete="new-password"
+          minLength={8}
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
+          error={confirmPasswordError}
           className="border-[#E5E7EB] bg-white h-14 text-lg focus:ring-[#EA1D2C] focus:border-[#EA1D2C] transition-all duration-300 group-hover:shadow-md"
           required
         />
@@ -218,12 +232,13 @@ const Step3Reset = ({
 
 export const ForgotPasswordFlow = ({
   onSuccess,
-  onNotify,
 }: ForgotPasswordFlowProps) => {
   const {
     step,
     loading,
     error,
+    newPasswordError,
+    confirmPasswordError,
     email,
     setEmail,
     code,
@@ -261,8 +276,10 @@ export const ForgotPasswordFlow = ({
       {step === 3 && (
         <Step3Reset
           newPassword={newPassword}
+          newPasswordError={newPasswordError}
           setNewPassword={setNewPassword}
           confirmPassword={confirmPassword}
+          confirmPasswordError={confirmPasswordError}
           setConfirmPassword={setConfirmPassword}
           onNext={handleResetPassword}
           loading={loading}

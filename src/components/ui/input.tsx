@@ -1,7 +1,7 @@
 "use client";
 
 import { translateCopy } from "@/config/copy-translations";
-import React, { useState } from "react";
+import React, { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Eye, EyeOff } from "lucide-react";
 
@@ -13,11 +13,17 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 export const Input = ({
   label,
   error,
+  id,
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": ariaInvalid,
   className = "",
   type = "text",
   ...props
 }: InputProps) => {
   useTranslation();
+  const generatedId = useId();
+  const inputId = id ?? generatedId;
+  const errorId = error ? inputId + "-error" : undefined;
   const [showPassword, setShowPassword] = useState(false);
 
   const isPassword = type === "password";
@@ -26,12 +32,13 @@ export const Input = ({
   return (
     <div className="flex flex-col gap-2 w-full">
       {label && (
-        <label className="text-sm font-medium text-[#111827]">{label}</label>
+        <label htmlFor={inputId} className="text-sm font-medium text-[#111827]">{label}</label>
       )}
 
       <div className="relative w-full">
         <input
           type={resolvedType}
+          id={inputId}
           className={`
             w-full
             px-4
@@ -57,6 +64,8 @@ export const Input = ({
             ${className}
           `}
           {...props}
+          aria-invalid={error ? true : ariaInvalid}
+          aria-describedby={[ariaDescribedBy, errorId].filter(Boolean).join(" ") || undefined}
         />
 
         {isPassword && (
@@ -79,7 +88,7 @@ export const Input = ({
       </div>
 
       {error && (
-        <span className="text-sm text-[#EF4444] font-medium">{translateCopy(error)}</span>
+        <span id={errorId} role="alert" className="text-sm text-[#EF4444] font-medium">{translateCopy(error)}</span>
       )}
     </div>
   );

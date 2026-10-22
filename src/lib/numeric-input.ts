@@ -12,7 +12,8 @@ export function sanitizeNumber(
   }
 
   const hasDot = decimals > 0 && v.includes(".");
-  let [intPart = "", decPart = ""] = v.split(".");
+  const [rawIntPart = "", decPart = ""] = v.split(".");
+  let intPart = rawIntPart;
 
   intPart = intPart.replace(/^0+(?=\d)/, ""); // 042 -> 42, 00 -> 0, 0.0 se conserva
   if (hasDot && intPart === "") intPart = "0"; // .5 -> 0.5

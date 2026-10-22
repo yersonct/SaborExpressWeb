@@ -1,7 +1,7 @@
 export type PreferenceLanguage = "es" | "en" | "pt" | "fr";
 export type PreferenceTheme = "light" | "dark" | "system";
 
-const SESSION_KEY = "sabor-express-session";
+import { getInMemorySession } from "@/features/auth/session-memory";
 
 export function preferenceStorageKey(
   preference: "language" | "theme",
@@ -11,17 +11,7 @@ export function preferenceStorageKey(
 }
 
 export function readPreferenceUserId(): number | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const userId = (JSON.parse(raw) as { userId?: unknown }).userId;
-    if (typeof userId !== "number" && typeof userId !== "string") return null;
-    const parsedId = Number(userId);
-    return Number.isFinite(parsedId) ? parsedId : null;
-  } catch {
-    return null;
-  }
+  return getInMemorySession()?.userId ?? null;
 }
 
 export function isPreferenceLanguage(value: unknown): value is PreferenceLanguage {

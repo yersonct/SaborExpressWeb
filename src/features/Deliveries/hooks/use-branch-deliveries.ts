@@ -1,6 +1,7 @@
   "use client";
 
   import { useCallback, useEffect, useState } from "react";
+  import { deferEffect } from "@/lib/defer-effect";
   import { deliveryService } from "../services/delivery.service";
   import type {
     Delivery,
@@ -46,9 +47,7 @@
       }
     }, [branchId]);
 
-    useEffect(() => {
-      load();
-    }, [load]);
+    useEffect(() => deferEffect(() => void load()), [load]);
 
 
 
