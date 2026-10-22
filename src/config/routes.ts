@@ -1,7 +1,7 @@
 export const ROUTES = {
   login: "/login",
   dashboard: "/panel",
-  orders: "/pedidos",
+  orders: "/orders",
   audit: "/caja",
   products: "/productos",
   employees: "/equipo",

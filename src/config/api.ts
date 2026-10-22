@@ -292,32 +292,36 @@ function onRefreshFailed(err: unknown) {
   refreshSubscribers.forEach((s) => s.reject(err));
   refreshSubscribers = [];
 }
+function isPublicRoute(): boolean {
+  if (typeof window === "undefined") return false;
+
+  const pathname = window.location.pathname;
+
+  return ["/login", "/letter"].some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  );
+}
+
 
 function forceLogout() {
+  // Las páginas públicas nunca redirigen al login.
+  if (isPublicRoute()) return;
+
   clearInMemorySession();
 
-  // Si ya estamos en el login, no mostrar avisos
-  // ni intentar redirigir nuevamente.
-  if (
-    window.location.pathname === "/login" ||
-    window.location.pathname.startsWith("/login/")
-  ) {
-    return;
-  }
-
+  // Evita varias redirecciones simultáneas.
   if (redirecting) return;
 
   redirecting = true;
-  showSessionExpiredToast();
 
-  setTimeout(() => {
-    window.location.replace(
-      new URL("/login", window.location.origin)
-    );
-  }, 2500);
+  // Retorno inmediato al login.
+  window.location.replace("/login");
 }
 
+
 function serviceUnavailableLogout() {
+  if (isPublicRoute()) return;
+
   clearInMemorySession();
   if (redirecting) return;
   redirecting = true;
@@ -351,12 +355,13 @@ function getBackendHealthUrl() {
 }
 
 async function verifyBackendOrLogout() {
-  if (
-    typeof window === "undefined" ||
-    window.location.pathname.startsWith("/login") ||
-    !hasStoredWebSession() ||
-    redirecting
-  ) return;
+if (
+  typeof window === "undefined" ||
+  isPublicRoute() ||
+  !hasStoredWebSession() ||
+  redirecting
+)
+  return;
 
   if (navigator.onLine === false) {
     serviceUnavailableLogout();
@@ -372,7 +377,9 @@ async function verifyBackendOrLogout() {
     }));
 
   const isAvailable = await probe;
-  if (!isAvailable && hasStoredWebSession()) serviceUnavailableLogout();
+  if (!isAvailable && !isPublicRoute() && hasStoredWebSession()) {
+  serviceUnavailableLogout();
+}
 }
 
 http.interceptors.response.use(

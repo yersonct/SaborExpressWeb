@@ -10,12 +10,15 @@ const ALLOWED_WEB_ROLES = ["GERENTE", "ADMINISTRADOR"];
 
 // Rutas que NO llevan sidebar/campanita (login, etc.)
 const PUBLIC_PATHS = ["/login", "/letter"];
+function AdminForceLogoutListener() {
+  useForceLogout();
+  return null;
+}
 
 export const AppShell = ({ children }: { children: React.ReactNode }) => {
   const { session, isAuthenticated, isHydrated, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  useForceLogout();
 
   const isPublicPath = PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
@@ -52,5 +55,10 @@ export const AppShell = ({ children }: { children: React.ReactNode }) => {
     return null;
   }
 
-  return <AppFrame>{children}</AppFrame>;
+return (
+  <>
+    <AdminForceLogoutListener />
+    <AppFrame>{children}</AppFrame>
+  </>
+);
 };
