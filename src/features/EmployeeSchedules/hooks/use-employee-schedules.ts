@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useAdminDataChanged } from "@/features/Dashboard/hooks/use-admin-data-changed";
 import { useRealtimeConnectionStatus } from "@/features/Dashboard/hooks/use-realtime-events";
@@ -44,9 +45,7 @@ export function useEmployeeSchedules(branchId: number | null) {
     }
   }, [branchId]);
 
-  useEffect(() => {
-    fetchSchedules();
-  }, [fetchSchedules]);
+  useEffect(() => deferEffect(() => void fetchSchedules()), [fetchSchedules]);
 
   const refreshAfterChange = useCallback(() => {
     void fetchSchedules(true);

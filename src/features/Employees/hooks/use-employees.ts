@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useAdminDataChanged } from "@/features/Dashboard/hooks/use-admin-data-changed";
 import { useRealtimeConnectionStatus } from "@/features/Dashboard/hooks/use-realtime-events";
@@ -50,8 +51,9 @@ export function useEmployees(estado: EmployeeStatusFilter = "activo") {
   }, [estado]);
 
   useEffect(() => {
-    void fetchEmployees();
+    const cancelDeferredFetch = deferEffect(() => void fetchEmployees());
     return () => {
+      cancelDeferredFetch();
       // Invalida peticiones en vuelo al cambiar el filtro o salir de Equipo.
       latestRequestId.current += 1;
     };

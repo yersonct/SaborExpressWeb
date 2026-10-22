@@ -1,9 +1,10 @@
 "use client";
 
 import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
+import { deferEffect } from "@/lib/defer-effect";
 import { translateCopy } from "@/config/copy-translations";
 import { formatMoney } from "@/lib/format-money";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { NotificationModal } from "@/components/ui/modal";
@@ -143,14 +144,15 @@ export const EmployeesView = () => {
  const [form, setForm] = useState(INITIAL_FORM);
  const [formStep, setFormStep] = useState(1);
  const [stepError, setStepError] = useState("");
+ const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
+  useEffect(() => deferEffect(() => {
     if (!isAdmin || !isFormOpen || !myBranch) return;
     const branchId = String(myBranch.id);
     setForm((current) =>
       current.branchId === branchId ? current : { ...current, branchId },
     );
-  }, [isAdmin, isFormOpen, myBranch]);
+  }), [isAdmin, isFormOpen, myBranch]);
 
   // El CV ya no se exige aquí: se valida al crear el turno con un rol
   // que lo requiera, en la pantalla de Turnos.
@@ -174,29 +176,15 @@ export const EmployeesView = () => {
   const totalPages = Math.max(1, Math.ceil(visibleEmployees.length / ITEMS_PER_PAGE));
   useEffect(() => {
     if (!loading && currentPage > totalPages) setCurrentPage(totalPages);
-  }, [loading, currentPage, totalPages]);
+  }, [loading, currentPage, totalPages, setCurrentPage]);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const paginatedEmployees = visibleEmployees.slice(
     startIndex,
     startIndex + ITEMS_PER_PAGE,
   );
-  useEffect(() => {
-    if (employees.length === 0) return;
-    const employeeId = consumeNavigationTarget(
-      pendingNavigationKeys.editEmployee,
-    );
-    if (employeeId === null) return;
-    if (autoOpenedEditId === employeeId) return; // evita reabrir en cada render
-
-    const emp = employees.find((e) => e.id === employeeId);
-    if (!emp) return;
-
-    setAutoOpenedEditId(employeeId);
-    openEdit(emp);
-  }, [employees, autoOpenedEditId]);
-
 const openCreate = () => {
   setEditingEmployee(null);
+  setFieldErrors({});
   setForm({
     ...INITIAL_FORM,
     branchId: isAdmin && myBranch ? String(myBranch.id) : "",
@@ -206,8 +194,9 @@ const openCreate = () => {
   setIsFormOpen(true);
 };
 
-  const openEdit = (emp: Employee) => {
+  const openEdit = useCallback((emp: Employee) => {
     setEditingEmployee(emp);
+    setFieldErrors({});
     setForm({
       name: emp.name,
       lastName: emp.lastName ?? "",
@@ -223,7 +212,20 @@ const openCreate = () => {
     setFormStep(1);
     setStepError("");
     setIsFormOpen(true);
-  };
+  }, [setEditingEmployee, setForm, setFormStep, setStepError, setIsFormOpen]);
+  useEffect(() => deferEffect(() => {
+    if (employees.length === 0) return;
+    const employeeId = consumeNavigationTarget(
+      pendingNavigationKeys.editEmployee,
+    );
+    if (employeeId === null || autoOpenedEditId === employeeId) return;
+
+    const employee = employees.find((item) => item.id === employeeId);
+    if (!employee) return;
+
+    setAutoOpenedEditId(employeeId);
+    openEdit(employee);
+  }), [employees, autoOpenedEditId, openEdit]);
   const handleViewCv = async (emp: Employee) => {
     setLoadingCv(true);
     try {
@@ -232,7 +234,7 @@ const openCreate = () => {
       window.open(url, "_blank"); // se abre en pestaña nueva (PDF se ve directo)
       // liberamos memoria después de un momento
       setTimeout(() => window.URL.revokeObjectURL(url), 60000);
-    } catch (err) {
+    } catch {
       setNotify({
         message: translateCopy("No se pudo cargar la hoja de vida"),
         type: "error",
@@ -254,7 +256,7 @@ const openCreate = () => {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
-    } catch (err) {
+    } catch {
       setNotify({
         message: translateCopy("No se pudo descargar la hoja de vida"),
         type: "error",
@@ -268,43 +270,44 @@ const openCreate = () => {
     setIsViewOpen(true);
   };
 
-  const toggleRole = (roleId: number) => {
-    setForm((prev) => ({
-      ...prev,
-      roleIds: prev.roleIds.includes(roleId)
-        ? prev.roleIds.filter((id) => id !== roleId)
-        : [...prev.roleIds, roleId],
-    }));
-  };
   const validateStep1 = (): string | null => {
-    if (!form.name.trim()) return "El nombre es obligatorio";
-    if (!editingEmployee && !form.document.trim())
-      return "El documento es obligatorio";
-    if (!editingEmployee && !form.email.trim())
-      return "El correo es obligatorio";
-    if (form.email && !/[^\s@]+@[^\s@]+\.[^\s@]+/.test(form.email.trim())) {
-      return "Ingresa un correo electrónico válido";
+    const errors: Record<string, string> = {};
+    if (!form.name.trim()) errors.name = "El nombre es obligatorio.";
+    else if (/\d/.test(form.name)) errors.name = "El nombre no puede contener números.";
+    if (/\d/.test(form.lastName)) errors.lastName = "El apellido no puede contener números.";
+    if (!editingEmployee && !form.document.trim()) errors.document = "El documento es obligatorio";
+    if (!editingEmployee && !form.email.trim()) errors.email = "El correo es obligatorio";
+    else if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      errors.email = "Ingresa un correo electrónico válido";
     }
-    return null;
+    if (form.phone.trim() && !/^(?:\d{7}|\d{10})$/.test(form.phone.trim())) {
+      errors.phone = "El teléfono debe tener 7 dígitos (fijo) o 10 dígitos (celular), sin espacios ni guiones.";
+    }
+    if (form.address.trim() && (form.address.trim().length < 5 || form.address.trim().length > 255)) {
+      errors.address = "La dirección debe tener entre 5 y 255 caracteres.";
+    }
+    setFieldErrors(errors);
+    return Object.values(errors)[0] ?? null;
   };
 
   const validateStep2 = (): string | null => {
-    if (!form.basePay || Number(form.basePay) <= 0)
-      return "Ingresa un salario base válido";
-    return null;
+    const salary = Number(form.basePay);
+    const errors: Record<string, string> = {};
+    if (!form.basePay || !Number.isFinite(salary) || salary <= 0) {
+      errors.basePay = "Ingresa un salario base válido";
+    }
+    setFieldErrors((current) => ({ ...current, basePay: errors.basePay ?? "" }));
+    return errors.basePay ?? null;
   };
 
   const validateStep3 = (): string | null => {
-    if (cvIsRequired && !form.cv && !editingEmployee?.hasCv) {
-      return "Uno de los roles seleccionados requiere hoja de vida (CV)";
-    }
-    return null;
+    const errors: Record<string, string> = {};
+    if (form.cv && form.cv.type !== "application/pdf") errors.cv = "El CV debe ser un archivo PDF";
+    else if (form.cv && form.cv.size > 5 * 1024 * 1024) errors.cv = "El PDF no debe superar 5MB";
+    else if (cvIsRequired && !form.cv && !editingEmployee?.hasCv) errors.cv = "Uno de los roles seleccionados requiere hoja de vida (CV)";
+    setFieldErrors((current) => ({ ...current, cv: errors.cv ?? "" }));
+    return errors.cv ?? null;
   };
-  useEffect(() => {
-    if (!cvIsRequired && stepError) {
-      setStepError("");
-    }
-  }, [cvIsRequired]);
   
 
   const goToNextStep = () => {
@@ -752,26 +755,34 @@ const handlePermanentDelete = async (emp: Employee) => {
                   <div>
                     <label className={labelClass}>{translateCopy("Nombre *")}</label>
                     <input
+                      id="employee-name"
                       type="text"
                       value={form.name}
+                      maxLength={120}
+                      aria-invalid={!!fieldErrors.name}
                       onChange={(e) =>
-                        setForm({ ...form, name: e.target.value })
+                        { setForm({ ...form, name: e.target.value }); setFieldErrors((current) => ({ ...current, name: "" })); }
                       }
                       className={inputClass}
                       placeholder={translateCopy("Ej. Juan")}
                     />
+                    {fieldErrors.name && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(fieldErrors.name)}</p>}
                   </div>
                   <div>
                     <label className={labelClass}>{translateCopy("Apellido")}</label>
                     <input
+                      id="employee-last-name"
                       type="text"
                       value={form.lastName}
+                      maxLength={80}
+                      aria-invalid={!!fieldErrors.lastName}
                       onChange={(e) =>
-                        setForm({ ...form, lastName: e.target.value })
+                        { setForm({ ...form, lastName: e.target.value }); setFieldErrors((current) => ({ ...current, lastName: "" })); }
                       }
                       className={inputClass}
                       placeholder={translateCopy("Ej. Pérez")}
                     />
+                    {fieldErrors.lastName && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(fieldErrors.lastName)}</p>}
                   </div>
                 </div>
 
@@ -780,14 +791,18 @@ const handlePermanentDelete = async (emp: Employee) => {
                     <label className={labelClass}>
                        {translateCopy("Documento de Identidad *")} </label>
                     <input
+                      id="employee-document"
                       type="text"
                       value={form.document}
+                      maxLength={20}
+                      aria-invalid={!!fieldErrors.document}
                       onChange={(e) =>
-                        setForm({ ...form, document: e.target.value })
+                        { setForm({ ...form, document: e.target.value }); setFieldErrors((current) => ({ ...current, document: "" })); }
                       }
                       className={inputClass}
                       placeholder={translateCopy("Ej. 123456789")}
                     />
+                    {fieldErrors.document && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(fieldErrors.document)}</p>}
                   </div>
                 )}
 
@@ -797,40 +812,54 @@ const handlePermanentDelete = async (emp: Employee) => {
                        {translateCopy("Correo Electrónico")} {!editingEmployee && "*"}
                     </label>
                     <input
+                      id="employee-email"
                       type="email"
                       value={form.email}
+                      maxLength={254}
+                      autoComplete="email"
+                      aria-invalid={!!fieldErrors.email}
                       onChange={(e) =>
-                        setForm({ ...form, email: e.target.value })
+                        { setForm({ ...form, email: e.target.value }); setFieldErrors((current) => ({ ...current, email: "" })); }
                       }
                       className={inputClass}
                       placeholder={translateCopy("ejemplo@saborexpress.com")}
                     />
+                    {fieldErrors.email && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(fieldErrors.email)}</p>}
                   </div>
                   <div>
                     <label className={labelClass}>{translateCopy("Teléfono")}</label>
                     <input
+                      id="employee-phone"
                       type="tel"
                       value={form.phone}
+                      maxLength={10}
+                      inputMode="numeric"
+                      aria-invalid={!!fieldErrors.phone}
                       onChange={(e) =>
-                        setForm({ ...form, phone: e.target.value })
+                        { setForm({ ...form, phone: e.target.value.replace(/\D/g, "") }); setFieldErrors((current) => ({ ...current, phone: "" })); }
                       }
                       className={inputClass}
                       placeholder={translateCopy("Ej. 3001234567")}
                     />
+                    {fieldErrors.phone && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(fieldErrors.phone)}</p>}
                   </div>
                 </div>
 
                 <div>
                   <label className={labelClass}>{translateCopy("Dirección")}</label>
                   <input
+                    id="employee-address"
                     type="text"
                     value={form.address}
+                    maxLength={255}
+                      aria-invalid={!!fieldErrors.address}
                     onChange={(e) =>
-                      setForm({ ...form, address: e.target.value })
+                        { setForm({ ...form, address: e.target.value }); setFieldErrors((current) => ({ ...current, address: "" })); }
                     }
                     className={inputClass}
                     placeholder={translateCopy("Ej. Calle 123 #45-67")}
                   />
+                    {fieldErrors.address && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(fieldErrors.address)}</p>}
                 </div>
               </div>
             )}
@@ -862,15 +891,19 @@ const handlePermanentDelete = async (emp: Employee) => {
                   <div>
                     <label className={labelClass}>{translateCopy("Salario Base *")}</label>
                     <input
+                      id="employee-base-pay"
                       type="number"
                       value={form.basePay}
                       onChange={(e) =>
-                        setForm({ ...form, basePay: e.target.value })
+                        { setForm({ ...form, basePay: e.target.value }); setFieldErrors((current) => ({ ...current, basePay: "" })); }
                       }
-                      min={0}
+                      min={1}
+                      step={1}
+                      aria-invalid={!!fieldErrors.basePay}
                       className={inputClass}
                       placeholder={translateCopy("Ej. 1300000")}
                     />
+                    {fieldErrors.basePay && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(fieldErrors.basePay)}</p>}
                   </div>
                 </div>
 
@@ -887,15 +920,24 @@ const handlePermanentDelete = async (emp: Employee) => {
                     <label className={labelClass}>{translateCopy("Hoja de Vida (CV)")}</label>
                     <input
                       type="file"
-                      accept=".pdf,.doc,.docx"
-                      onChange={(e) =>
-                        setForm({ ...form, cv: e.target.files?.[0] ?? null })
-                      }
+                      accept=".pdf,application/pdf"
+                      aria-invalid={!!fieldErrors.cv}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] ?? null;
+                        setForm({ ...form, cv: file });
+                        const error = file && file.type !== "application/pdf"
+                          ? "El CV debe ser un archivo PDF"
+                          : file && file.size > 5 * 1024 * 1024
+                            ? "El PDF no debe superar 5MB"
+                            : "";
+                        setFieldErrors((current) => ({ ...current, cv: error }));
+                      }}
                       className="w-full px-4 py-2 rounded-xl border border-gray-300 text-sm text-gray-600 bg-white
                      file:mr-4 file:py-1 file:px-4 file:rounded-full file:border-0
                      file:text-xs file:font-bold file:bg-[#111827] file:text-white
                      hover:file:bg-gray-800 focus:outline-none transition-all cursor-pointer"
                     />
+                    {fieldErrors.cv && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(fieldErrors.cv)}</p>}
                     <p className="text-xs text-gray-500 mt-1">
                        {translateCopy("Súbela si el rol que le asignaste en Turnos la requiere. Puedes subirla o actualizarla en cualquier momento.")} </p>
                     {editingEmployee?.hasCv && (

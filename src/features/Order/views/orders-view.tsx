@@ -1,6 +1,7 @@
 "use client";
 
 import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
+import { deferEffect } from "@/lib/defer-effect";
 import { translateCopy, getCurrentLocale } from "@/config/copy-translations";
 import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -168,14 +169,15 @@ export const OrdersView = () => {
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [confirmCancel, setConfirmCancel] = useState<Order | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [cancelReasonError, setCancelReasonError] = useState("");
   const [saving, setSaving] = useState(false);
   const [notify, setNotify] = useState<NotifyState>(null);
-  useEffect(() => {
+  useEffect(() => deferEffect(() => {
     const pendingOrderId = consumeNavigationTarget(pendingNavigationKeys.order);
     if (pendingOrderId !== null) setSelectedOrderId(pendingOrderId);
-  }, []);
+  }), []);
 
-  const { orders, loading, error, updateStatus, cancelOrder, refetch } =
+  const { orders, loading, error, updateStatus, cancelOrder } =
     useOrders(
       isGerente && branchFilter
         ? { branchId: Number(branchFilter) }
@@ -239,12 +241,10 @@ const { history: statusHistory, loading: loadingHistory } =
 
   const handleCancel = async () => {
     if (!confirmCancel || !cancelReason.trim()) {
-      setNotify({
-        message: translateCopy("Debes indicar un motivo de cancelación"),
-        type: "error",
-      });
+      setCancelReasonError("Debes indicar un motivo de cancelación");
       return;
     }
+    setCancelReasonError("");
     setSaving(true);
     try {
       await cancelOrder(confirmCancel.id, { reason: cancelReason.trim() });
@@ -594,6 +594,7 @@ const { history: statusHistory, loading: loadingHistory } =
         onClose={() => {
           setConfirmCancel(null);
           setCancelReason("");
+          setCancelReasonError("");
         }}
       >
         <div className="space-y-4">
@@ -601,17 +602,21 @@ const { history: statusHistory, loading: loadingHistory } =
              {translateCopy("¿Seguro que deseas cancelar el pedido")}{" "}
             {translateCopy("? Indica el motivo:")} </p>
           <textarea
+            id="order-cancel-reason"
             value={cancelReason}
-            onChange={(e) => setCancelReason(e.target.value)}
+            onChange={(e) => { setCancelReason(e.target.value); setCancelReasonError(""); }}
             rows={3}
+            aria-invalid={!!cancelReasonError}
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-[#111827] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
             placeholder={translateCopy("Ej: El cliente canceló, producto agotado, etc.")}
           />
+          {cancelReasonError && <p role="alert" className="-mt-2 text-xs text-red-600">{translateCopy(cancelReasonError)}</p>}
           <div className="flex justify-end gap-3">
             <button
               onClick={() => {
                 setConfirmCancel(null);
                 setCancelReason("");
+                setCancelReasonError("");
               }}
               className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
             >
@@ -684,7 +689,7 @@ const OrderCard: React.FC<OrderCardProps> = ({
       <div className="relative mb-4">
         <p className="text-sm font-medium text-zinc-600">
           {order.customerName ?? translateCopy("Cliente sin registrar")}
-          {order.tableNumber ? ` · Mesa ${order.tableNumber}` : ""}
+          {order.tableNumber ? ` · ${translateCopy(`Mesa ${order.tableNumber}`)}` : ""}
         </p>
         <p className="text-xs text-zinc-400 mt-1">
           {order.orderDetails?.length ?? 0}{" "}

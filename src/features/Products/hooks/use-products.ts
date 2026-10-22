@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { productService } from "../services/product.service";
 import type {
   Product,
@@ -48,9 +49,7 @@ export function useProducts(branchId?: number) {
     [branchId],
   );
 
-  useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
+  useEffect(() => deferEffect(() => void fetchProducts()), [fetchProducts]);
 
   // Tiempo real: el back emite ProductsChanged al crear, editar, borrar o activar/desactivar
   const refreshImmediately = useCallback(() => {

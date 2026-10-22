@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useAdminDataChanged } from "@/features/Dashboard/hooks/use-admin-data-changed";
 import { useRealtimeConnectionStatus } from "@/features/Dashboard/hooks/use-realtime-events";
@@ -45,9 +46,7 @@ const fetchBranches = useCallback(async (silent = false) => {
   }
 }, [isEnabled]);
 
-  useEffect(() => {
-    fetchBranches();
-  }, [fetchBranches]);
+  useEffect(() => deferEffect(() => void fetchBranches()), [fetchBranches]);
 
   const refreshAfterChange = useCallback(() => {
     void fetchBranches(true);

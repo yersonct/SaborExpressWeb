@@ -8,7 +8,6 @@ import { Dialog } from "@/components/ui/dialog";
 import { NotificationModal } from "@/components/ui/modal";
 import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useBranches } from "../hooks/use-branches";
-import { BranchCard } from "../components/branch-card";
 import { MyBranchView } from "./my-branch-view";
 import { BranchEmployeesModal } from "../components/branch-employees-modal";
 import type { Branch } from "../types/branch.types";
@@ -162,7 +161,7 @@ const BranchesManagerView = () => {
   // Si al eliminar o filtrar la página actual deja de existir, retrocede
   useEffect(() => {
     if (!loading && currentPage > totalPages) setCurrentPage(totalPages);
-  }, [currentPage, totalPages, loading]);
+  }, [currentPage, totalPages, loading, setCurrentPage]);
   return (
     <>
       <div className="space-y-6 pb-10">

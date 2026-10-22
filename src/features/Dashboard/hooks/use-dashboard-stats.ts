@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import {
   dashboardService,
   type DashboardStats,
@@ -46,9 +47,7 @@ export function useDashboardStats(
   );
 
   // Carga inicial y al cambiar de sede o periodo
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+  useEffect(() => deferEffect(() => void fetchStats()), [fetchStats]);
 
   const refreshImmediately = useCallback(() => {
     void fetchStats(true);

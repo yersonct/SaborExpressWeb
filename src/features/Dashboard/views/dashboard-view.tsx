@@ -32,7 +32,7 @@ export const DashboardView = () => {
     if (isAdministrador && myBranch) {
       setSelectedBranchId(myBranch.id);
     }
-  }, [isAdministrador, myBranch]);
+  }, [isAdministrador, myBranch, setSelectedBranchId]);
 
   const { stats, loading } = useDashboardStats(selectedBranchId, filtroActivo);
 

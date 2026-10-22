@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { tableService } from "../services/table.service";
 import type { Branch } from "@/features/branches/types/branch.types";
 import type {
@@ -90,9 +91,7 @@ export function useTables(branchId: number | null, branches: Branch[] = []) {
     [branchId, branches],
   );
 
-  useEffect(() => {
-    fetchTables();
-  }, [fetchTables]);
+  useEffect(() => deferEffect(() => void fetchTables()), [fetchTables]);
 
   // Tiempo real: el back emite TablesChanged al crear, editar, ocupar, liberar o eliminar
   const refreshImmediately = useCallback(() => {

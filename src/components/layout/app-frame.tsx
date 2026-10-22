@@ -106,7 +106,7 @@ export const AppFrame = ({ children }: { children: React.ReactNode }) => {
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 p-3 sm:p-5 lg:p-8">{children}</main>
+        <main className="app-main min-w-0 flex-1 p-3 sm:p-5 lg:p-8">{children}</main>
       </div>
     </div>
   );

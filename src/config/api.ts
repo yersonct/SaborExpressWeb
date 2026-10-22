@@ -6,13 +6,58 @@ import {
 } from "@/config/user-preferences";
 import i18n from "@/config/i18n";
 import { translateCopy } from "@/config/copy-translations";
+import { getInMemorySession, setInMemorySession } from "@/features/auth/session-memory";
+import type { UserSession } from "@/features/auth/types/auth.types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+const CONFIGURED_API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "");
 
-const SESSION_KEY = "sabor-express-session";
+function isLocalDevelopmentHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  if (normalized === "localhost" || normalized.endsWith(".localhost") || normalized.endsWith(".local")) {
+    return true;
+  }
+
+  const octets = normalized.split(".").map(Number);
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return false;
+  }
+
+  return octets[0] === 10 ||
+    octets[0] === 127 ||
+    (octets[0] === 169 && octets[1] === 254) ||
+    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+    (octets[0] === 192 && octets[1] === 168);
+}
+
+function resolveApiBase(): string | undefined {
+  if (!CONFIGURED_API_BASE || typeof window === "undefined" || process.env.NODE_ENV !== "development") {
+    return CONFIGURED_API_BASE;
+  }
+
+  try {
+    const configured = new URL(CONFIGURED_API_BASE);
+    const current = new URL(window.location.href);
+    if (
+      configured.protocol !== current.protocol ||
+      !isLocalDevelopmentHost(configured.hostname) ||
+      !isLocalDevelopmentHost(current.hostname)
+    ) {
+      return CONFIGURED_API_BASE;
+    }
+
+    configured.hostname = current.hostname;
+    return configured.origin + configured.pathname.replace(/\/+$/, "");
+  } catch {
+    return CONFIGURED_API_BASE;
+  }
+}
+
+const API_BASE = resolveApiBase();
+
 export const SERVER_BASE_URL = API_BASE;
 export const http = axios.create({
   baseURL: `${API_BASE}/api`,
+  withCredentials: true,
   headers: {
     "Content-Type": "application/json",
   },
@@ -39,12 +84,15 @@ function setLanguageHeader(config: InternalAxiosRequestConfig) {
   config.headers.set("Accept-Language", getPreferredLanguage());
 }
 
-function localizeApiError(error: any) {
-  const data = error?.response?.data;
-  if (!data || typeof data !== "object") {
-    if (error?.response) {
-      error.message = translateCopy("No se pudo completar la solicitud.");
-    }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function localizeApiError(error: unknown) {
+  if (!axios.isAxiosError(error)) return;
+  const data = error.response?.data;
+  if (!isRecord(data)) {
+    if (error.response) error.message = translateCopy("No se pudo completar la solicitud.");
     return;
   }
 
@@ -54,7 +102,7 @@ function localizeApiError(error: any) {
     }
   }
 
-  if (data.errors && typeof data.errors === "object") {
+  if (isRecord(data.errors)) {
     for (const [key, value] of Object.entries(data.errors)) {
       if (typeof value === "string") data.errors[key] = translateCopy(value);
       else if (Array.isArray(value)) {
@@ -71,25 +119,9 @@ function localizeApiError(error: any) {
     : translateCopy("No se pudo completar la solicitud.");
 }
 
-function readSession() {
-  if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem(SESSION_KEY);
-  return raw ? JSON.parse(raw) : null;
-}
-
-function saveSession(session: any) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-}
-
 http.interceptors.request.use((config) => {
   setLanguageHeader(config);
   config.headers.set("X-Client-App", "admin-web");
-  if (typeof window !== "undefined") {
-    const session = readSession();
-    if (session?.token) {
-      config.headers.Authorization = `Bearer ${session.token}`;
-    }
-  }
   return config;
 });
 
@@ -114,7 +146,7 @@ function showSessionExpiredToast(
     color: #ffffff;
     padding: 14px 24px;
     border-radius: 12px;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     font-size: 14px;
     font-weight: 600;
     box-shadow: 0 10px 30px rgba(0,0,0,0.25);
@@ -169,7 +201,7 @@ function showNetworkErrorToast(message = getNetworkErrorMessage()) {
     color: #ffffff;
     padding: 14px 18px;
     border-radius: 12px;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     font-size: 14px;
     font-weight: 600;
     box-shadow: 0 10px 30px rgba(0,0,0,0.25);
@@ -247,12 +279,12 @@ let backendHealthProbe: Promise<boolean> | null = null;
 // --- Lógica de refresh automático ---
 let isRefreshing = false;
 let refreshSubscribers: Array<{
-  resolve: (token: string) => void;
+  resolve: () => void;
   reject: (err: unknown) => void;
 }> = [];
 
-function onTokenRefreshed(newToken: string) {
-  refreshSubscribers.forEach((s) => s.resolve(newToken));
+function onTokenRefreshed() {
+  refreshSubscribers.forEach((subscriber) => subscriber.resolve());
   refreshSubscribers = [];
 }
 
@@ -262,33 +294,35 @@ function onRefreshFailed(err: unknown) {
 }
 
 function forceLogout() {
+  clearInMemorySession();
   if (redirecting) return;
   redirecting = true;
-  localStorage.removeItem(SESSION_KEY);
   showSessionExpiredToast();
   setTimeout(() => {
-    window.location.href = "/login";
+    window.location.replace(new URL("/login", window.location.origin));
   }, 2500);
 }
 
 function serviceUnavailableLogout() {
+  clearInMemorySession();
   if (redirecting) return;
   redirecting = true;
-  localStorage.removeItem(SESSION_KEY);
   showSessionExpiredToast(
     translateCopy("El servicio no está disponible en este momento. Redirigiendo al login..."),
   );
   setTimeout(() => {
-    window.location.href = "/login";
+    window.location.replace(new URL("/login", window.location.origin));
   }, 2500);
 }
 
 function hasStoredWebSession() {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    return Boolean(raw && JSON.parse(raw)?.token);
-  } catch {
-    return false;
+  return getInMemorySession() !== null;
+}
+
+function clearInMemorySession() {
+  setInMemorySession(null);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("sabor-express:auth-expired"));
   }
 }
 
@@ -307,9 +341,13 @@ async function verifyBackendOrLogout() {
     typeof window === "undefined" ||
     window.location.pathname.startsWith("/login") ||
     !hasStoredWebSession() ||
-    navigator.onLine === false ||
     redirecting
   ) return;
+
+  if (navigator.onLine === false) {
+    serviceUnavailableLogout();
+    return;
+  }
 
   const probe = backendHealthProbe ?? (backendHealthProbe = axios
     .get(getBackendHealthUrl(), { timeout: 4000 })
@@ -362,9 +400,7 @@ http.interceptors.response.use(
 
     const originalRequest = error.config;
     const isLoginAttempt = originalRequest?.url?.includes("/Auth/login");
-    const isRefreshAttempt = originalRequest?.url?.includes(
-      "/Auth/refresh-token",
-    );
+    const isRefreshAttempt = originalRequest?.url?.includes("/Auth/web-refresh-token");
 
     if (error?.response?.status !== 401 || isLoginAttempt || isRefreshAttempt) {
       // Si el propio refresh-token falló (refresh token vencido/inválido),
@@ -382,21 +418,12 @@ http.interceptors.response.use(
     }
     originalRequest._retry = true;
 
-    const session = readSession();
-    if (!session?.refreshToken) {
-      forceLogout();
-      return Promise.reject(error);
-    }
-
     // Si ya hay un refresh en curso, encolamos esta petición
     // hasta que termine, en vez de disparar refresh-token varias veces a la vez.
     if (isRefreshing) {
       return new Promise((resolve, reject) => {
         refreshSubscribers.push({
-          resolve: (newToken: string) => {
-            originalRequest.headers.Authorization = `Bearer ${newToken}`;
-            resolve(http(originalRequest));
-          },
+          resolve: () => resolve(http(originalRequest)),
           reject,
         });
       });
@@ -405,26 +432,31 @@ http.interceptors.response.use(
     isRefreshing = true;
 
     try {
-      const { data } = await axios.post(
-        `${http.defaults.baseURL}/Auth/refresh-token`,
-        { refreshToken: session.refreshToken },
-        { headers: { "Accept-Language": getPreferredLanguage() } },
+      const { data } = await axios.post<UserSession>(
+        `${http.defaults.baseURL}/Auth/web-refresh-token`,
+        {},
+        {
+          withCredentials: true,
+          headers: {
+            "X-Client-App": "admin-web",
+            "Accept-Language": getPreferredLanguage(),
+          },
+        },
       );
-
-      const newSession = {
-        ...session,
-        userId: data.userId ?? session.userId,
+      const refreshedSession: UserSession = {
+        userId: data.userId,
         identifier: data.identifier,
         roles: data.roles,
-        token: data.token,
-        refreshToken: data.refreshToken,
+        employeeId: data.employeeId ?? null,
       };
-      saveSession(newSession);
+      setInMemorySession(refreshedSession);
+      window.dispatchEvent(new CustomEvent("sabor-express:session-refreshed", {
+        detail: refreshedSession,
+      }));
 
       isRefreshing = false;
-      onTokenRefreshed(data.token);
+      onTokenRefreshed();
 
-      originalRequest.headers.Authorization = `Bearer ${data.token}`;
       return http(originalRequest);
     } catch (refreshError) {
       isRefreshing = false;
