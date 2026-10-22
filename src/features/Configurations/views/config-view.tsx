@@ -24,6 +24,7 @@ export const ConfigView = () => {
   const { t } = useTranslation();
   const { logout, session } = useAuth();
   const qrRef = useRef<HTMLDivElement>(null);
+  const saveAllInFlightRef = useRef(false);
 
   const isGerente = session?.roles?.includes("GERENTE") ?? false;
   const { branches, updateBranch } = useBranches(isGerente);
@@ -299,7 +300,7 @@ export const ConfigView = () => {
     setIsEditingOp(false);
   };
 
-  const handleSaveAll = async () => {
+  const performSaveAll = async () => {
     const errors: Record<string, string> = {};
     const cleanName = name.trim();
     const cleanAddress = address.trim();
@@ -356,6 +357,16 @@ export const ConfigView = () => {
       setSuccessOpen(true);
     } catch {
       // los errores ya quedan en branchError / settingsError
+    }
+  };
+
+  const handleSaveAll = async () => {
+    if (saveAllInFlightRef.current) return;
+    saveAllInFlightRef.current = true;
+    try {
+      await performSaveAll();
+    } finally {
+      saveAllInFlightRef.current = false;
     }
   };
 
