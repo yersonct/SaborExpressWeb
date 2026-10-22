@@ -62,7 +62,7 @@ export const ReviewsView = () => {
       (selectedBranchId == null || !branches.some((branch) => branch.id === selectedBranchId))) {
       setSelectedBranchId(branches[0].id);
     }
-  }, [branchReady, isAdmin, myBranch, isGerente, branches, selectedBranchId]);
+  }, [branchReady, isAdmin, myBranch, isGerente, branches, selectedBranchId, setSelectedBranchId]);
 
   const { combined, stats, loading, error, deletingId, removeReview } =
     useBranchReviews(selectedBranchId);

@@ -6,14 +6,12 @@ import type { Branch } from "../types/branch.types";
 
 interface BranchCardProps {
   branch: Branch;
-  index: number;
   onEdit: (branch: Branch) => void;
   onDelete: (branch: Branch) => void;
 }
 
 export const BranchCard = ({
   branch,
-  index,
   onEdit,
   onDelete,
 }: BranchCardProps) => {

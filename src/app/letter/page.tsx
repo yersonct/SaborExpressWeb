@@ -12,6 +12,7 @@ import type { Product } from "@/features/Products/types/product.types";
 import { LanguageSelector } from "@/components/ui/language-selector";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { formatMoney } from "@/lib/format-money";
+import Image from "next/image";
 import * as signalR from "@microsoft/signalr";
 
 interface CategoryGroup {
@@ -37,6 +38,16 @@ function localizeMenuText(
   return savedTranslation?.trim() || translateCopy(source);
 }
 
+function productCategory(product: Product, language: string | undefined) {
+  return localizeMenuText(
+    language,
+    product.categoryName,
+    product.categoryNameEn,
+    product.categoryNamePt,
+    product.categoryNameFr,
+  );
+}
+
 export default function CartaDigital() {
   const { i18n: activeI18n } = useTranslation();
   const currentLanguage = activeI18n.resolvedLanguage ?? activeI18n.language;
@@ -55,14 +66,6 @@ export default function CartaDigital() {
       product.descriptionEn,
       product.descriptionPt,
       product.descriptionFr,
-    );
-  const productCategory = (product: Product) =>
-    localizeMenuText(
-      currentLanguage,
-      product.categoryName,
-      product.categoryNameEn,
-      product.categoryNamePt,
-      product.categoryNameFr,
     );
   const [categories, setCategories] = useState<CategoryGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -179,7 +182,7 @@ export default function CartaDigital() {
         const grouped = activeProducts.reduce<Record<string, Product[]>>(
           (acc, product) => {
             const key = product.categoryName
-              ? productCategory(product)
+              ? productCategory(product, currentLanguage)
               : translateCopy("Otros");
             if (!acc[key]) acc[key] = [];
             acc[key].push(product);
@@ -380,9 +383,12 @@ export default function CartaDigital() {
                     className="flex w-full min-w-0 gap-4 rounded-2xl border border-slate-100 bg-white p-4 text-left shadow-sm transition-transform active:scale-[0.98]"
                   >
                     {item.photo && (
-                      <img
+                      <Image
                         src={`${SERVER_BASE_URL}${item.photo}`}
                         alt={productName(item)}
+                        width={80}
+                        height={80}
+                        unoptimized
                         className="w-20 h-20 rounded-xl object-cover shrink-0"
                       />
                     )}
@@ -443,9 +449,12 @@ export default function CartaDigital() {
           <div className="max-h-[90dvh] w-full overflow-y-auto rounded-t-3xl bg-white sm:max-w-md sm:rounded-3xl">
             <div className="relative">
               {selectedProduct.photo ? (
-                <img
+                <Image
                   src={`${SERVER_BASE_URL}${selectedProduct.photo}`}
                   alt={productName(selectedProduct)}
+                  width={640}
+                  height={448}
+                  unoptimized
                   className="w-full h-56 object-cover"
                 />
               ) : (
@@ -474,7 +483,7 @@ export default function CartaDigital() {
 
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
                 {selectedProduct.categoryName
-                  ? productCategory(selectedProduct)
+                  ? productCategory(selectedProduct, currentLanguage)
                   : translateCopy("Otros")}
               </p>
 

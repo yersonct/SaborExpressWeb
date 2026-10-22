@@ -21,6 +21,9 @@ const resources = {
         subtitle: "Bienvenido de nuevo a su sistema",
         email: "Correo electrónico",
         password: "Contraseña",
+        email_required: "Ingresa tu correo electrónico.",
+        email_invalid: "Ingresa un correo electrónico válido.",
+        password_required: "Ingresa tu contraseña.",
         submit: "Ingresar",
         success: "¡Sus credenciales son correctas!",
         error: "Credenciales incorrectas, intente de nuevo.",
@@ -69,6 +72,9 @@ const resources = {
         subtitle: "Welcome back to your system",
         email: "Email",
         password: "Password",
+        email_required: "Enter your email address.",
+        email_invalid: "Enter a valid email address.",
+        password_required: "Enter your password.",
         submit: "Sign in",
         success: "Your credentials are correct!",
         error: "Incorrect credentials, please try again.",
@@ -117,6 +123,9 @@ const resources = {
         subtitle: "Bem-vindo de volta ao seu sistema",
         email: "E-mail",
         password: "Senha",
+        email_required: "Informe seu endereço de e-mail.",
+        email_invalid: "Informe um endereço de e-mail válido.",
+        password_required: "Informe sua senha.",
         submit: "Entrar",
         success: "Suas credenciais estão corretas!",
         error: "Credenciais incorretas, tente novamente.",
@@ -165,6 +174,9 @@ const resources = {
         subtitle: "Bienvenue dans votre système",
         email: "E-mail",
         password: "Mot de passe",
+        email_required: "Saisissez votre adresse e-mail.",
+        email_invalid: "Saisissez une adresse e-mail valide.",
+        password_required: "Saisissez votre mot de passe.",
         submit: "Se connecter",
         success: "Vos identifiants sont corrects !",
         error: "Identifiants incorrects, veuillez réessayer.",
@@ -212,19 +224,19 @@ const configurationTranslations = {
 const authFlowTranslations = {
   es: {
     forgot_password: "¿Olvidaste tu contraseña?",
-    forgot: { progress: "Paso {{current}} de {{total}}", step1_title: "Recuperar contraseña", step1_desc: "Ingresa tu correo para recibir un código.", send_code: "Enviar código", step2_title: "Ingresa el código", step2_desc: "Revisa tu bandeja de entrada.", code: "Código de 6 dígitos", verify: "Verificar código", step3_title: "Nueva contraseña", step3_desc: "Crea tu nueva contraseña segura.", new_password: "Nueva contraseña", confirm_password: "Confirmar contraseña", save: "Guardar contraseña" },
+    forgot: { progress: "Paso {{current}} de {{total}}", step1_title: "Recuperar contraseña", step1_desc: "Ingresa tu correo para recibir un código.", send_code: "Enviar código", step2_title: "Ingresa el código", step2_desc: "Revisa tu bandeja de entrada.", code: "Código de 6 dígitos", verify: "Verificar código", step3_title: "Nueva contraseña", step3_desc: "Crea tu nueva contraseña segura.", new_password: "Nueva contraseña", confirm_password: "Confirmar contraseña", save: "Guardar contraseña", email_required: "Ingresa tu correo electrónico.", email_invalid: "Ingresa un correo electrónico válido.", code_required: "Ingresa el código.", code_invalid: "El código debe contener exactamente 6 dígitos.", password_required: "Ingresa una contraseña nueva.", password_min: "La contraseña debe tener al menos 8 caracteres.", confirm_required: "Confirma tu contraseña.", password_mismatch: "Las contraseñas no coinciden." },
   },
   en: {
     forgot_password: "Forgot your password?",
-    forgot: { progress: "Step {{current}} of {{total}}", step1_title: "Reset password", step1_desc: "Enter your email to receive a code.", send_code: "Send code", step2_title: "Enter the code", step2_desc: "Check your inbox.", code: "6-digit code", verify: "Verify code", step3_title: "New password", step3_desc: "Create a secure new password.", new_password: "New password", confirm_password: "Confirm password", save: "Save password" },
+    forgot: { progress: "Step {{current}} of {{total}}", step1_title: "Reset password", step1_desc: "Enter your email to receive a code.", send_code: "Send code", step2_title: "Enter the code", step2_desc: "Check your inbox.", code: "6-digit code", verify: "Verify code", step3_title: "New password", step3_desc: "Create a secure new password.", new_password: "New password", confirm_password: "Confirm password", save: "Save password", email_required: "Enter your email address.", email_invalid: "Enter a valid email address.", code_required: "Enter the code.", code_invalid: "The code must contain exactly 6 digits.", password_required: "Enter a new password.", password_min: "The password must be at least 8 characters long.", confirm_required: "Confirm your password.", password_mismatch: "The passwords do not match." },
   },
   pt: {
     forgot_password: "Esqueceu sua senha?",
-    forgot: { progress: "Etapa {{current}} de {{total}}", step1_title: "Redefinir senha", step1_desc: "Digite seu e-mail para receber um código.", send_code: "Enviar código", step2_title: "Digite o código", step2_desc: "Verifique sua caixa de entrada.", code: "Código de 6 dígitos", verify: "Verificar código", step3_title: "Nova senha", step3_desc: "Crie uma nova senha segura.", new_password: "Nova senha", confirm_password: "Confirmar senha", save: "Salvar senha" },
+    forgot: { progress: "Etapa {{current}} de {{total}}", step1_title: "Redefinir senha", step1_desc: "Digite seu e-mail para receber um código.", send_code: "Enviar código", step2_title: "Digite o código", step2_desc: "Verifique sua caixa de entrada.", code: "Código de 6 dígitos", verify: "Verificar código", step3_title: "Nova senha", step3_desc: "Crie uma nova senha segura.", new_password: "Nova senha", confirm_password: "Confirmar senha", save: "Salvar senha", email_required: "Informe seu endereço de e-mail.", email_invalid: "Informe um endereço de e-mail válido.", code_required: "Informe o código.", code_invalid: "O código deve conter exatamente 6 dígitos.", password_required: "Informe uma nova senha.", password_min: "A senha deve ter pelo menos 8 caracteres.", confirm_required: "Confirme sua senha.", password_mismatch: "As senhas não coincidem." },
   },
   fr: {
     forgot_password: "Mot de passe oublié ?",
-    forgot: { progress: "Étape {{current}} sur {{total}}", step1_title: "Réinitialiser le mot de passe", step1_desc: "Saisissez votre e-mail pour recevoir un code.", send_code: "Envoyer le code", step2_title: "Saisissez le code", step2_desc: "Consultez votre boîte de réception.", code: "Code à 6 chiffres", verify: "Vérifier le code", step3_title: "Nouveau mot de passe", step3_desc: "Créez un nouveau mot de passe sécurisé.", new_password: "Nouveau mot de passe", confirm_password: "Confirmer le mot de passe", save: "Enregistrer le mot de passe" },
+    forgot: { progress: "Étape {{current}} sur {{total}}", step1_title: "Réinitialiser le mot de passe", step1_desc: "Saisissez votre e-mail pour recevoir un code.", send_code: "Envoyer le code", step2_title: "Saisissez le code", step2_desc: "Consultez votre boîte de réception.", code: "Code à 6 chiffres", verify: "Vérifier le code", step3_title: "Nouveau mot de passe", step3_desc: "Créez un nouveau mot de passe sécurisé.", new_password: "Nouveau mot de passe", confirm_password: "Confirmer le mot de passe", save: "Enregistrer le mot de passe", email_required: "Saisissez votre adresse e-mail.", email_invalid: "Saisissez une adresse e-mail valide.", code_required: "Saisissez le code.", code_invalid: "Le code doit contenir exactement 6 chiffres.", password_required: "Saisissez un nouveau mot de passe.", password_min: "Le mot de passe doit contenir au moins 8 caractères.", confirm_required: "Confirmez votre mot de passe.", password_mismatch: "Les mots de passe ne correspondent pas." },
   },
 } as const;
 

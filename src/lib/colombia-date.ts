@@ -1,3 +1,5 @@
+import { getCurrentLocale } from "@/config/copy-translations";
+
 export const COLOMBIA_TIME_ZONE = "America/Bogota";
 
 // Colombia permanece en UTC-5 y no aplica horario de verano.
@@ -36,7 +38,7 @@ export function getColombiaDayStartUtc(dayKey: string): Date {
 
 export function formatColombiaDateTime(
   value: Date | string | number,
-  locale?: string,
+  locale: string = getCurrentLocale(),
   options: Intl.DateTimeFormatOptions = {},
 ): string {
   const date = toDate(value);

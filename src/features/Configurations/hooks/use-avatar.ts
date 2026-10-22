@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 
 const MAX_BYTES = 1024 * 1024; // 1 MB, igual que dice la pantalla
 const ALLOWED = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -58,7 +59,7 @@ function resizeToDataUrl(file: File): Promise<string> {
 export function useAvatar(ownerKey: string) {
   const [avatar, setAvatar] = useState<string | null>(null);
 
-  useEffect(() => {
+  useEffect(() => deferEffect(() => {
     if (!ownerKey) {
       setAvatar(null);
       return;
@@ -68,7 +69,7 @@ export function useAvatar(ownerKey: string) {
     } catch {
       setAvatar(null);
     }
-  }, [ownerKey]);
+  }), [ownerKey]);
 
   const upload = useCallback(
     async (file: File) => {

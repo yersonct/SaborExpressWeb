@@ -72,7 +72,7 @@ export function LanguageInitializer() {
     };
     colorScheme.addEventListener("change", applySystemTheme);
 
-    if (!userId || !session?.token) {
+    if (!userId || !session) {
       return () => colorScheme.removeEventListener("change", applySystemTheme);
     }
     let active = true;
@@ -108,7 +108,7 @@ export function LanguageInitializer() {
       active = false;
       colorScheme.removeEventListener("change", applySystemTheme);
     };
-  }, [isHydrated, session?.userId, session?.token]);
+  }, [isHydrated, session?.userId, session]);
 
   return null;
 }

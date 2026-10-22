@@ -27,11 +27,6 @@ const STATUS_STYLES: Record<DeliveryStatus, string> = {
 
 // El único paso hacia adelante disponible desde cada estado.
 // "Delivered" es el final, no tiene siguiente.
-const NEXT_STATUS: Partial<Record<DeliveryStatus, DeliveryStatus>> = {
-  Assigned: "InTransit",
-  InTransit: "Delivered",
-};
-
 export const DeliveriesView = () => {
   const { t, i18n } = useTranslation();
   const currentLanguage = (i18n.resolvedLanguage ?? i18n.language)
@@ -66,15 +61,13 @@ export const DeliveriesView = () => {
       (selectedBranchId == null || !branches.some((branch) => branch.id === selectedBranchId))) {
       setSelectedBranchId(branches[0].id);
     }
-  }, [branchReady, isAdmin, myBranch, isGerente, branches, selectedBranchId]);
+  }, [branchReady, isAdmin, myBranch, isGerente, branches, selectedBranchId, setSelectedBranchId]);
 
   const {
     deliveries,
     deliveryPersons,
     loading,
     error,
-    savingId,
-    updateStatus,
     reload,
   } = useBranchDeliveries(selectedBranchId);
 
@@ -106,24 +99,6 @@ export const DeliveriesView = () => {
     (currentPage - 1) * PAGE_SIZE,
     currentPage * PAGE_SIZE,
   );
-
-  const handleAdvanceStatus = async (deliveryId: number, current: DeliveryStatus) => {
-    const next = NEXT_STATUS[current];
-    if (!next) return;
-    try {
-      await updateStatus(deliveryId, next);
-      setNotify({
-        message: `${translateCopy("Domicilio actualizado a")} "${translateCopy(STATUS_LABELS[next])}"`,
-        type: "success",
-      });
-    } catch (err) {
-      setNotify({
-        message:
-          err instanceof Error ? translateCopy(err.message) : translateCopy("No se pudo actualizar el estado"),
-        type: "error",
-      });
-    }
-  };
 
   return (
     <>

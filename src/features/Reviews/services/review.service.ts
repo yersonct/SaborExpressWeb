@@ -5,6 +5,17 @@ import type {
   DeliveryRating,
 } from "../types/review.types";
 
+interface DeliveryRatingApiResponse {
+  id: number;
+  orderId: number;
+  customerName: string | null;
+  deliveryPersonName: string | null;
+  customerRating: number | null;
+  customerRatingComment: string | null;
+  deliveredAt: string | null;
+  assignedAt: string;
+}
+
 export const reviewService = {
   // GET /api/Reviews/branch/{branchId} — Gerente o Administrador (solo su sede)
   getByBranch: async (branchId: number): Promise<Review[]> => {
@@ -22,9 +33,10 @@ export const reviewService = {
 
   // GET /api/Deliveries/branch/{branchId} — solo las que ya fueron calificadas
   getDeliveryRatings: async (branchId: number): Promise<DeliveryRating[]> => {
-    const { data } = await http.get<any[]>(`/Deliveries/branch/${branchId}`);
+    const { data } = await http.get<DeliveryRatingApiResponse[]>(`/Deliveries/branch/${branchId}`);
     return data
-      .filter((d) => d.customerRating != null)
+      .filter((d): d is DeliveryRatingApiResponse & { customerRating: number } =>
+        d.customerRating !== null)
       .map((d) => ({
         deliveryId: d.id,
         orderId: d.orderId,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/defer-effect";
 import { orderStatusHistoryService } from "../services/order-status-history.service";
 import type { OrderStatusHistory } from "../types/order-status-history.types";
 
@@ -33,9 +34,7 @@ export function useOrderStatusHistory(orderId: number | null) {
     }
   }, [orderId]);
 
-  useEffect(() => {
-    fetchHistory();
-  }, [fetchHistory]);
+  useEffect(() => deferEffect(() => void fetchHistory()), [fetchHistory]);
 
   return { history, loading, error, refetch: fetchHistory };
 }

@@ -20,7 +20,7 @@ export const BranchEmployeesModal = ({
   const { employees, loading } = useEmployees("activo");
 
   const branchEmployees = branch
-    ? employees.filter((emp: any) => emp.branchId === branch.id)
+    ? employees.filter((emp) => emp.branchId === branch.id)
     : [];
 
   return (
@@ -55,7 +55,7 @@ export const BranchEmployeesModal = ({
         </p>
       ) : (
         <div className="space-y-2 max-h-96 overflow-y-auto">
-          {branchEmployees.map((emp: any) => (
+          {branchEmployees.map((emp) => (
             <div
               key={emp.id}
               className="branch-employee-row flex items-center justify-between p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors"

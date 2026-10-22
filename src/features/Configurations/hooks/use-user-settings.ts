@@ -42,7 +42,7 @@ export function useUserSettings() {
   const loading = !isHydrated || (userId !== null && current === null);
 
   useEffect(() => {
-    if (!isHydrated || !userId || !session?.token) return;
+    if (!isHydrated || !userId || !session) return;
 
     let active = true;
     Promise.allSettled([
@@ -81,7 +81,7 @@ export function useUserSettings() {
     return () => {
       active = false;
     };
-  }, [isHydrated, session?.token, userId]);
+  }, [isHydrated, session, userId]);
 
   useEffect(() => {
     const handleLanguageChanged = (event: Event) => {

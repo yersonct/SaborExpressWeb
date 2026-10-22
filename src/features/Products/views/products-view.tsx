@@ -1,10 +1,11 @@
 "use client";
 
 import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
-import { translateCopy } from "@/config/copy-translations";
+import { localizeCatalogText, translateCopy } from "@/config/copy-translations";
 import { formatMoney } from "@/lib/format-money";
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import Image from "next/image";
 import { Dialog } from "@/components/ui/dialog";
 import { SERVER_BASE_URL } from "@/config/api";
 import { NotificationModal } from "@/components/ui/modal";
@@ -57,6 +58,24 @@ export const ProductsView = () => {
   } = useProducts();
   const { categories } = useCategories();
   const { session } = useAuth();
+  const displayProductName = (product: Product) =>
+    localizeCatalogText(product.name, {
+      en: product.nameEn,
+      pt: product.namePt,
+      fr: product.nameFr,
+    });
+  const displayProductDescription = (product: Product) =>
+    localizeCatalogText(product.description, {
+      en: product.descriptionEn,
+      pt: product.descriptionPt,
+      fr: product.descriptionFr,
+    });
+  const displayProductCategory = (product: Product) =>
+    localizeCatalogText(product.categoryName, {
+      en: product.categoryNameEn,
+      pt: product.categoryNamePt,
+      fr: product.categoryNameFr,
+    });
   const isAdministrador = session?.roles.includes("ADMINISTRADOR");
   const isGerente = session?.roles.includes("GERENTE");
 
@@ -341,7 +360,7 @@ export const ProductsView = () => {
               </h2>
               <p className="text-xs text-gray-500 mt-1">
                 {editingProduct
-                  ? `Actualizando "${editingProduct.name}"`
+                  ? translateCopy(`Actualizando "${editingProduct.name}"`)
                   : translateCopy("Completa los campos para añadir un artículo al menú digital.")}
               </p>
             </div>
@@ -646,13 +665,16 @@ export const ProductsView = () => {
                     <div>
                       <label className={labelClass}>{translateCopy("Vista Previa")}</label>
                       <div className="w-full h-48 bg-gray-50 border border-gray-100 rounded-2xl flex items-center justify-center overflow-hidden">
-                        <img
+                        <Image
                           src={
                             form.photo
                               ? URL.createObjectURL(form.photo)
                               : `${SERVER_BASE_URL}${editingProduct?.photo}`
                           }
                           alt={translateCopy("Vista previa")}
+                          width={800}
+                          height={600}
+                          unoptimized
                           className="max-w-full max-h-full object-contain"
                         />
                       </div>
@@ -792,9 +814,12 @@ export const ProductsView = () => {
                   } relative flex items-center justify-center text-gray-400 group-hover:scale-[1.01] transition-transform duration-300 p-3`}
                 >
                   {product.photo ? (
-                    <img
+                    <Image
                       src={`${SERVER_BASE_URL}${product.photo}`}
-                      alt={product.name}
+                      alt={displayProductName(product)}
+                      width={640}
+                      height={360}
+                      unoptimized
                       className="max-w-full max-h-full object-contain"
                     />
                   ) : (
@@ -823,10 +848,10 @@ export const ProductsView = () => {
                           product.status ? "text-gray-900" : "text-gray-500"
                         }`}
                       >
-                        {product.name}
+                        {displayProductName(product)}
                       </h4>
                       <span className="text-[10px] font-bold text-gray-400 uppercase">
-                        {translateCopy("Categoría:")} {product.categoryName}
+                        {translateCopy("Categoría:")} {displayProductCategory(product)}
                         {product.branchName ? ` · ${product.branchName}` : ""}
                       </span>
                     </div>
@@ -836,7 +861,7 @@ export const ProductsView = () => {
                   </div>
 
                   <p className="text-xs text-gray-500 line-clamp-2 h-8">
-                    {product.description}
+                    {displayProductDescription(product)}
                   </p>
 
                   <div className="pt-3 border-t border-gray-100 flex justify-between items-center mt-2">

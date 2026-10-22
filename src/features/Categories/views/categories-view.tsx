@@ -1,7 +1,7 @@
 "use client";
 
 import { useRememberedUiState } from "@/lib/use-remembered-ui-state";
-import { translateCopy } from "@/config/copy-translations";
+import { localizeCatalogText, translateCopy } from "@/config/copy-translations";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
@@ -41,6 +41,18 @@ export const CategoriesView = () => {
     updateCategory,
     deleteCategory,
   } = useCategories();
+  const displayCategoryName = (category: Category) =>
+    localizeCatalogText(category.name, {
+      en: category.nameEn,
+      pt: category.namePt,
+      fr: category.nameFr,
+    });
+  const displayCategoryDescription = (category: Category) =>
+    localizeCatalogText(category.description, {
+      en: category.descriptionEn,
+      pt: category.descriptionPt,
+      fr: category.descriptionFr,
+    });
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -143,7 +155,7 @@ export const CategoriesView = () => {
 const totalPages = Math.max(1, Math.ceil(categories.length / ITEMS_PER_PAGE));
 useEffect(() => {
   if (!loading && currentPage > totalPages) setCurrentPage(totalPages);
-}, [loading, currentPage, totalPages]);
+}, [loading, currentPage, totalPages, setCurrentPage]);
 const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
 const paginatedCategories = categories.slice(
   startIndex,
@@ -236,15 +248,15 @@ const handleDelete = async () => {
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg bg-[#111827] text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
-                            {category.name.charAt(0)}
+                            {displayCategoryName(category).charAt(0)}
                           </div>
                           <span className="font-bold text-[#111827]">
-                            {category.name}
+                            {displayCategoryName(category)}
                           </span>
                         </div>
                       </td>
                       <td className="px-5 py-4 text-gray-600">
-                        {category.description || "—"}
+                        {displayCategoryDescription(category) || "—"}
                       </td>
                       <td className="px-5 py-4 text-center">
                         <span
