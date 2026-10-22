@@ -32,24 +32,33 @@ const nextConfig: NextConfig = {
       ["/domicilios", "/deliveries"],
       ["/resenas", "/reviews"],
     ];
-    const folderRouteRedirects = friendlyRoutes.map(([friendly, internal]) => ({
-      source: `${internal}/:path*`,
-      destination: `${friendly}/:path*`,
-      permanent: false,
-    }));
+    const folderRouteRedirects = friendlyRoutes
+      .filter(([friendly]) => friendly !== "/pedidos")
+      .map(([friendly, internal]) => ({
+        source: `${internal}/:path*`,
+        destination: `${friendly}/:path*`,
+        permanent: false,
+      }));
     const oldShortRouteRedirects = friendlyRoutes.map(([friendly], index) => ({
       source: `/p${index + 1}/:path*`,
-      destination: `${friendly}/:path*`,
+      destination: `${friendly === "/pedidos" ? "/orders" : friendly}/:path*`,
       permanent: false,
     }));
 
-    return [...folderRouteRedirects, ...oldShortRouteRedirects];
+    return [
+      ...folderRouteRedirects,
+      ...oldShortRouteRedirects,
+      {
+        source: "/pedidos/:path*",
+        destination: "/orders/:path*",
+        permanent: false,
+      },
+    ];
   },
 
   async rewrites() {
     const friendlyRoutes = [
       ["/panel", "/dashboard"],
-      ["/pedidos", "/orders"],
       ["/caja", "/reports"],
       ["/productos", "/products"],
       ["/equipo", "/employees"],
