@@ -5,7 +5,6 @@ import { deferEffect } from "@/lib/defer-effect";
 import { translateCopy } from "@/config/copy-translations";
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/features/auth/hooks/use-auth";
-import { useRouter } from "next/navigation";
 import { useMyBranch } from "@/features/branches/hooks/use-my-branch";
 import { useBranchOperationalSettings } from "@/features/Configurations/hooks/use-branch-operational-settings";
 import { getInitials } from "@/features/Configurations/utils/initials";
@@ -24,7 +23,6 @@ export const ConfigView = () => {
   const [activeTab, setActiveTab] = useRememberedUiState<"perfil" | "negocio" | "carta">("settings", "activeTab", "perfil");
   const { t } = useTranslation();
   const { logout, session } = useAuth();
-  const router = useRouter();
   const qrRef = useRef<HTMLDivElement>(null);
 
   const isGerente = session?.roles?.includes("GERENTE") ?? false;
@@ -361,10 +359,13 @@ export const ConfigView = () => {
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    router.push("/login");
-  };
+const handleLogout = async () => {
+  try {
+    await logout();
+  } finally {
+    window.location.replace("/login");
+  }
+};
 
   const handleDownloadQr = () => {
     const canvas = qrRef.current?.querySelector("canvas");
