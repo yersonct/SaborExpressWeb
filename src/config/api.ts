@@ -1,3 +1,4 @@
+import { parseApiBaseUrl } from "./api-base";
 import axios, { type InternalAxiosRequestConfig } from "axios";
 import {
   isPreferenceLanguage,
@@ -15,7 +16,11 @@ import {
   recordClientResponse,
 } from "@/config/client-latency-metrics";
 
-const CONFIGURED_API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "");
+let configurationError: Error | null = null;
+const CONFIGURED_API_BASE = (() => {
+  try { return parseApiBaseUrl(process.env.NEXT_PUBLIC_API_URL); }
+  catch (error) { configurationError = error instanceof Error ? error : new Error("Invalid API configuration"); return ""; }
+})();
 
 function isLocalDevelopmentHost(hostname: string): boolean {
   const normalized = hostname.toLowerCase();
@@ -64,6 +69,7 @@ export const SERVER_BASE_URL = API_BASE;
 export const http = axios.create({
   baseURL: `${API_BASE}/api`,
   withCredentials: true,
+  timeout: 20000,
   headers: {
     "Content-Type": "application/json",
   },
@@ -128,6 +134,7 @@ function localizeApiError(error: unknown) {
 }
 
 http.interceptors.request.use((config) => {
+  if (configurationError) return Promise.reject(new Error(i18n.t("connection.configurationError")));
   markClientRequestStart(config);
   setLanguageHeader(config);
   config.headers.set("X-Client-App", "admin-web");
@@ -503,6 +510,7 @@ http.interceptors.response.use(
   },
 );
 export const publicHttp = axios.create({
+  timeout: 20000,
   baseURL: `${API_BASE}/api`,
   headers: {
     "Content-Type": "application/json",
@@ -510,6 +518,7 @@ export const publicHttp = axios.create({
 });
 
 publicHttp.interceptors.request.use((config) => {
+  if (configurationError) return Promise.reject(new Error(i18n.t("connection.configurationError")));
   setLanguageHeader(config);
   return config;
 });

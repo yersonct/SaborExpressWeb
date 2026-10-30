@@ -173,6 +173,7 @@ export default function LoginView() {
             {/* SOLUCIÓN 2: w-auto h-auto agregado en el className */}
             <Image
               src={activeLogo}
+                placeholder="blur"
               alt={translateCopy("SaborExpress")}
               width={720}
               height={820}
@@ -232,10 +233,13 @@ export default function LoginView() {
               {/* SOLUCIÓN 2: w-auto h-auto agregado en el className */}
               <Image
                 src={activeLogo}
+                placeholder="blur"
                 alt={translateCopy("SaborExpress")}
                 width={260}
-                height={220}
-                className="relative max-h-32 max-w-full object-contain drop-shadow-[0_0_25px_rgba(234,29,44,0.25)]"
+                height={174}
+                loading="eager"
+                sizes="260px"
+                className="relative h-auto w-52 max-w-full object-contain drop-shadow-[0_0_25px_rgba(234,29,44,0.25)]"
               />
             </div>
           </div>

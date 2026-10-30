@@ -1,157 +1,39 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next'; // 1. Importamos el hook
-import { translateCopy } from '@/config/copy-translations';
+import { useEffect, useId } from "react";
+import { useTranslation } from "react-i18next";
+import { translateCopy } from "@/config/copy-translations";
+import { useDialogAccessibility } from "./use-dialog-accessibility";
 
 interface ModalProps {
   isOpen: boolean;
   message: string;
-  type: 'success' | 'error' | 'warning';
+  type: "success" | "error" | "warning";
   onClose: () => void;
   autoClose?: boolean;
 }
 
-export const NotificationModal = ({
-  isOpen,
-  message,
-  type,
-  onClose,
-  autoClose = true,
-}: ModalProps) => {
-  const [visible, setVisible] = useState(false);
-  const { t } = useTranslation(); // 2. Inicializamos el traductor
-
+export const NotificationModal = ({ isOpen, message, type, onClose, autoClose = true }: ModalProps) => {
+  const { t } = useTranslation();
+  const titleId = useId(), messageId = useId();
+  const ref = useDialogAccessibility(isOpen, onClose);
   useEffect(() => {
-    if (!isOpen) return;
-
-    const frame = window.requestAnimationFrame(() => setVisible(true));
-    if (!autoClose) return () => window.cancelAnimationFrame(frame);
-
-    const timer = setTimeout(() => {
-      setVisible(false);
-      setTimeout(() => onClose(), 300);
-    }, 3000);
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-      clearTimeout(timer);
-    };
-  }, [isOpen, onClose, autoClose]);
-
-  const handleManualClose = () => {
-    setVisible(false);
-    setTimeout(() => {
-      onClose();
-    }, 300);
-  };
-
+    if (!isOpen || !autoClose) return;
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [isOpen, autoClose, onClose]);
   if (!isOpen) return null;
-
+  const color = type === "success" ? "bg-green-100 text-green-700" : type === "error" ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700";
   return (
-    <div
-      onClick={handleManualClose}
-      className={`
-        fixed
-        inset-0
-        z-50
-        flex
-        items-center
-        justify-center
-        overflow-y-auto
-        p-3
-        bg-black/50
-        backdrop-blur-sm
-        transition-all
-        duration-300
-        ${visible ? 'opacity-100' : 'opacity-0'}
-      `}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className={`
-          relative
-          w-full
-          max-w-md
-          max-h-[90dvh]
-          overflow-y-auto
-          bg-white
-          rounded-3xl
-          shadow-[0_20px_80px_rgba(0,0,0,0.25)]
-          border
-          border-[#E5E7EB]
-          overflow-hidden
-          px-6
-          py-7
-          sm:px-8
-          sm:py-10
-          flex
-          flex-col
-          items-center
-          text-center
-          transition-all
-          duration-300
-          ${visible ? 'scale-100 translate-y-0 opacity-100' : 'scale-95 translate-y-5 opacity-0'}
-        `}
-      >
-        <div
-          className={`
-            absolute
-            top-0
-            left-0
-            w-full
-            h-1.5
-            ${type === 'success' && 'bg-gradient-to-r from-[#10B981] to-[#34D399]'}
-            ${type === 'error' && 'bg-gradient-to-r from-[#EF4444] to-[#F87171]'}
-            ${type === 'warning' && 'bg-gradient-to-r from-[#F59E0B] to-[#FBBF24]'}
-          `}
-        />
-
-        <div
-          className={`
-            w-24
-            h-24
-            rounded-full
-            flex
-            items-center
-            justify-center
-            text-5xl
-            font-bold
-            mb-6
-            shadow-lg
-            ${type === 'success' && 'bg-green-100 text-[#10B981]'}
-            ${type === 'error' && 'bg-red-100 text-[#EF4444]'}
-            ${type === 'warning' && 'bg-orange-100 text-[#F59E0B] animate-pulse'}
-          `}
-        >
-          {type === 'success' && '✓'}
-          {type === 'error' && '✕'}
-          {type === 'warning' && '⚠️'}
+    <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/50 p-3 backdrop-blur-sm">
+      <div ref={ref} role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId} tabIndex={-1}
+        className="relative my-auto flex max-h-[90dvh] w-full min-w-0 max-w-md flex-col items-center overflow-y-auto rounded-3xl border border-gray-200 bg-white px-6 py-7 text-center shadow-2xl sm:px-8 sm:py-10">
+        <div aria-hidden="true" className={`mb-5 flex h-20 w-20 shrink-0 items-center justify-center rounded-full text-4xl font-bold ${color}`}>
+          {type === "success" ? "✓" : type === "error" ? "✕" : "!"}
         </div>
-
-        <h2 className="text-3xl font-extrabold text-[#111827] mb-2">
-          {/* 3. Reemplazamos los textos fijos por traducciones */}
-          {type === 'success' && t('modal.success')}
-          {type === 'error' && t('modal.error')}
-          {type === 'warning' && t('modal.warning')}
-        </h2>
-
-        <p className="text-gray-500 leading-relaxed text-base max-w-sm mb-8">
-          {translateCopy(message)}
-        </p>
-
-        {!autoClose && (
-          <button 
-            onClick={handleManualClose}
-            className={`
-              w-full py-3 px-4 rounded-xl font-bold text-white transition-all shadow-sm hover:shadow-md
-              ${type === 'warning' ? 'bg-[#F59E0B] hover:bg-[#D97706]' : 'bg-[#111827] hover:bg-gray-800'}
-            `}
-          >
-            {/* 4. Traducimos el botón */}
-            {t('modal.understood')}
-          </button>
-        )}
+        <h2 id={titleId} className="mb-2 break-words text-2xl font-extrabold text-gray-900">{t(`modal.${type}`)}</h2>
+        <p id={messageId} className="mb-6 max-w-full break-words text-base leading-relaxed text-gray-600">{translateCopy(message)}</p>
+        <button type="button" onClick={onClose} className="min-h-11 w-full rounded-xl bg-[#111827] px-4 py-3 font-bold text-white hover:bg-gray-800">{t("modal.understood")}</button>
       </div>
     </div>
   );

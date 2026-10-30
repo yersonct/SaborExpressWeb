@@ -22,6 +22,7 @@ export const Button = ({
     <button
       disabled={isLoading}
       className={`
+        min-h-11
         w-full
         bg-[#EA1D2C]
         hover:bg-[#d11a28]

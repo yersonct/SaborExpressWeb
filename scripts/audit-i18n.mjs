@@ -69,3 +69,6 @@ for (const [label, findings] of [
 }
 
 if (result.status === 'FAIL') process.exitCode = 1;
+
+const { auditSharedCopy } = await import("./audit-copy.mjs");
+auditSharedCopy(root);
