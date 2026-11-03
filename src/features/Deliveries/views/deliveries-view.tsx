@@ -114,6 +114,7 @@ export const DeliveriesView = () => {
           <div className="flex flex-wrap items-center gap-3">
             {isGerente && branches.length > 0 && (
               <select
+                aria-label={translateCopy("Sede")}
                 value={selectedBranchId ?? ""}
                 onChange={(e) => {
                   setSelectedBranchId(Number(e.target.value));

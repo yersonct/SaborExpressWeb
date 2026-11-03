@@ -83,6 +83,7 @@ export const DashboardView = () => {
             {/* Selector de sede: solo el Gerente puede cambiarlo */}
             {isGerente && (
               <select
+                aria-label={translateCopy("Sede")}
                 value={selectedBranchId ?? "all"}
                 onChange={(e) =>
                   setSelectedBranchId(
@@ -113,6 +114,7 @@ export const DashboardView = () => {
             )}
 
             <select
+              aria-label={translateCopy("Rango de fechas")}
               value={filtroActivo}
               onChange={(e) => setFiltroActivo(e.target.value as DateRangeOption)}
               className="text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-4 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#EA1D2C]"

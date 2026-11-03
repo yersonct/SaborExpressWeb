@@ -277,6 +277,7 @@ const { history: statusHistory, loading: loadingHistory } =
           <div className="flex flex-wrap items-center gap-3">
             {isGerente && (
               <select
+                aria-label={translateCopy("Sede")}
                 value={branchFilter}
                 onChange={(e) => setBranchFilter(e.target.value)}
                 className="w-full max-w-full rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 sm:w-auto"

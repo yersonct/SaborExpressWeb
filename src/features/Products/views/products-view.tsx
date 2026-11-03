@@ -349,7 +349,9 @@ export const ProductsView = () => {
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-3 backdrop-blur-sm transition-all animate-fade-in sm:items-center sm:p-4">
           <div className="relative my-auto max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-3xl border border-gray-100 bg-white p-4 shadow-2xl sm:p-8">
             <button
+              type="button"
               onClick={() => setIsOpen(false)}
+              aria-label={translateCopy("Cerrar")}
               className="absolute top-5 right-5 text-gray-400 hover:text-gray-600 font-bold text-lg p-2"
             >
               ✕
@@ -761,6 +763,7 @@ export const ProductsView = () => {
           <h2 className="text-xl font-bold text-[#111827] tracking-tight">
              {translateCopy("Menú Actual")} </h2>
           <select
+            aria-label={translateCopy("Categoría")}
             value={filterCategoryId}
             onChange={(e) => setFilterCategoryId(e.target.value)}
             className="text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-4 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#EA1D2C]"
@@ -881,6 +884,9 @@ export const ProductsView = () => {
                         {product.status ? translateCopy("Activo") : translateCopy("Inactivo")}
                       </span>
                       <button
+                        type="button"
+                        aria-label={`${translateCopy("Cambiar estado de")} ${product.name}`}
+                        aria-pressed={product.status}
                         onClick={() => handleToggle(product)}
                         disabled={saving}
                         className={`w-11 h-6 rounded-full flex items-center transition-colors px-1 disabled:opacity-50 ${

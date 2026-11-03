@@ -23,6 +23,7 @@ export function EmployeesDirectory({ model }: { model: EmployeesModel }) {
               </p>
             </div>
             <select
+              aria-label={translateCopy("Estado")}
               value={estado}
               onChange={(e) => {
                 setEstado(e.target.value as EmployeeStatusFilter);

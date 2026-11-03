@@ -29,7 +29,7 @@ export function ConfigProfile({ model }: { model: ConfigModel }) {
                 <form className="space-y-5" onSubmit={handleSaveProfile}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                      <label htmlFor="profile-name" className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
                         {t("configuration.name")}
                       </label>
                       <input
@@ -48,7 +48,7 @@ export function ConfigProfile({ model }: { model: ConfigModel }) {
                       {profileFieldErrors.name && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(profileFieldErrors.name)}</p>}
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                      <label htmlFor="profile-last-name" className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
                         {t("configuration.lastName")}
                       </label>
                       <input
@@ -64,10 +64,11 @@ export function ConfigProfile({ model }: { model: ConfigModel }) {
                       {profileFieldErrors.lastName && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(profileFieldErrors.lastName)}</p>}
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                      <label htmlFor="profile-email" className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
                         {t("configuration.email")}
                       </label>
                       <input
+                        id="profile-email"
                         type="email"
                         value={userEmail}
                         disabled
@@ -75,7 +76,7 @@ export function ConfigProfile({ model }: { model: ConfigModel }) {
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                      <label htmlFor="profile-phone" className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
                         {t("configuration.phone")}
                       </label>
                       <input
@@ -92,10 +93,11 @@ export function ConfigProfile({ model }: { model: ConfigModel }) {
                       {profileFieldErrors.phone && <p role="alert" className="mt-1 text-xs text-red-600">{translateCopy(profileFieldErrors.phone)}</p>}
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                      <label htmlFor="profile-role" className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
                         {t("configuration.role")}
                       </label>
                       <input
+                        id="profile-role"
                         type="text"
                         value={userRole}
                         disabled
