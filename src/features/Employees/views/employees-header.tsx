@@ -24,6 +24,10 @@ export function EmployeesHeader({ model }: { model: EmployeesModel }) {
                    {translateCopy("Aplica a Mesero, Cajero, Cocinero, Auxiliar de cocina y Repartidor")} </p>
               </div>
               <button
+                type="button"
+                role="switch"
+                aria-checked={allRequireCv}
+                aria-label={translateCopy("Exigir hoja de vida")}
                 onClick={handleToggleCvRequirement}
                 disabled={savingCvRequirement || staffRoles.length === 0}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 flex-shrink-0 ${

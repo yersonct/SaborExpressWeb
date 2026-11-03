@@ -186,7 +186,11 @@ const BranchesManagerView = () => {
 
         {branches.length > 0 && (
           <div className="flex flex-col sm:flex-row gap-3">
+            <label htmlFor="branch-search" className="sr-only">
+              {translateCopy("Buscar por nombre, dirección o teléfono...")}
+            </label>
             <input
+              id="branch-search"
               type="text"
               value={search}
               onChange={(e) => {
@@ -197,6 +201,7 @@ const BranchesManagerView = () => {
               className={`${inputClass} sm:max-w-sm`}
             />
             <select
+              aria-label={translateCopy("Estado")}
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value as "all" | "active" | "inactive");

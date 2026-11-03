@@ -1,4 +1,5 @@
 import { parseApiBaseUrl } from "./api-base";
+import { sanitizeServerError } from "./api-error";
 import axios, { type InternalAxiosRequestConfig } from "axios";
 import {
   isPreferenceLanguage,
@@ -105,6 +106,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function localizeApiError(error: unknown) {
   if (!axios.isAxiosError(error)) return;
   const data = error.response?.data;
+  const status = error.response?.status;
+  if (typeof status === "number" && status >= 500) {
+    const sanitized = sanitizeServerError(status, data, translateCopy);
+    if (sanitized) {
+      error.message = sanitized.message;
+      error.response!.data = sanitized.data;
+      return;
+    }
+  }
   if (!isRecord(data)) {
     if (error.response) error.message = translateCopy("No se pudo completar la solicitud.");
     return;

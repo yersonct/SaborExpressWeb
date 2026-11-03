@@ -19,6 +19,7 @@ export function SchedulesHeader({ model }: { model: SchedulesModel }) {
               <label className="text-xs font-semibold text-gray-500 mr-2">
                  {translateCopy("Sede:")} </label>
               <select
+                aria-label={translateCopy("Sede")}
                 className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 bg-white"
                 value={selectedBranchId ?? ""}
                 onChange={(e) => setSelectedBranchId(Number(e.target.value))}

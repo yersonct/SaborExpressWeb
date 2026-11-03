@@ -387,6 +387,7 @@ const activeOrderByTableId = useMemo(() => {
         <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
           <label className={labelClass}>{translateCopy("Sede")}</label>
           <select
+            aria-label={translateCopy("Sede")}
             value={branchId ?? ""}
             onChange={(e) => handleBranchChange(e.target.value)}
             className={inputClass}
