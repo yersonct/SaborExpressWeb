@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --import ./scripts/register-typescript.mjs --test src/features/auth/session-memory.test.mjs scripts/i18n-audit.test.mjs scripts/api-base.test.mjs",
+    "test": "node --import ./scripts/register-typescript.mjs --test src/features/auth/session-memory.test.mjs src/config/api-error.test.mjs scripts/i18n-audit.test.mjs scripts/api-base.test.mjs",
     "i18n:audit": "node scripts/audit-i18n.mjs",
     "test:e2e": "playwright test"
   },
