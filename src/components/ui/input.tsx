@@ -76,7 +76,7 @@ export const Input = ({
             aria-label={
               showPassword ? translateCopy("Ocultar contraseña") : translateCopy("Mostrar contraseña")
             }
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#EA1D2C] transition-colors"
+            className="absolute right-1 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center text-gray-400 hover:text-[#EA1D2C] transition-colors"
           >
             {showPassword ? (
               <EyeOff className="h-5 w-5" />

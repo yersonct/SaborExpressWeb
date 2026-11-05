@@ -197,6 +197,7 @@ export const AuditView = () => {
             {/* Selector de sede: solo Gerente */}
             {isGerente && (
               <select
+                aria-label={translateCopy("Sede")}
                 value={selectedBranchId ?? "all"}
                 onChange={(e) =>
                   setSelectedBranchId(
@@ -229,6 +230,7 @@ export const AuditView = () => {
             {/* Rango de fechas: solo Gerente puede cambiarlo */}
             {isGerente && (
               <select
+                aria-label={translateCopy("Rango de fechas")}
                 value={dateOption}
                 onChange={(e) =>
                   setDateOption(e.target.value as DateRangeOption)
@@ -244,6 +246,7 @@ export const AuditView = () => {
 
             {/* Filtro por método: ambos roles */}
             <select
+              aria-label={translateCopy("Método de pago")}
               value={methodFilter}
               onChange={(e) =>
                 setMethodFilter(e.target.value as PaymentMethod | "all")

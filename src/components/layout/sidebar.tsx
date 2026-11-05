@@ -2,6 +2,7 @@
 
 import "@/config/i18n";
 import Link from "next/link";
+import { useDialogAccessibility } from "@/components/ui/use-dialog-accessibility";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { LanguageSelector } from "@/components/ui/language-selector";
@@ -17,6 +18,7 @@ export const Sidebar = ({ mobileOpen = false, onNavigate }: SidebarProps) => {
   const pathname = usePathname() ?? "";
   const { t } = useTranslation();
   const { session } = useAuth();
+  const dialogRef = useDialogAccessibility(mobileOpen, onNavigate ?? (() => {}));
 
   const routeInternal: Record<string, string> = {
     [ROUTES.dashboard]: "/dashboard",
@@ -48,6 +50,11 @@ export const Sidebar = ({ mobileOpen = false, onNavigate }: SidebarProps) => {
 
   return (
     <aside
+      ref={dialogRef}
+      role={mobileOpen ? "dialog" : undefined}
+      aria-modal={mobileOpen || undefined}
+      aria-label={t("menu.navigation")}
+      tabIndex={-1}
       id="admin-sidebar"
       data-mobile-open={mobileOpen}
       className={`app-sidebar fixed left-0 top-0 z-50 flex h-screen w-64 max-w-[90vw] flex-col p-6 text-white transition-transform duration-300 lg:z-20 lg:max-w-none lg:translate-x-0 ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}
