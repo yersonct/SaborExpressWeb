@@ -38,24 +38,7 @@ export const AppFrame = ({ children }: { children: React.ReactNode }) => {
     return () => window.removeEventListener("resize", closeOnDesktop);
   }, []);
 
-  useEffect(() => {
-    if (!mobileMenuOpen) return;
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMobileMenuForPath(null);
-    };
-
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [mobileMenuOpen]);
-
-  return (
+return (
     <div className="app-page-background flex min-h-screen min-w-0">
       <Sidebar
         mobileOpen={mobileMenuOpen}
@@ -71,7 +54,7 @@ export const AppFrame = ({ children }: { children: React.ReactNode }) => {
         />
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col lg:ml-64">
+      <div inert={mobileMenuOpen} className="flex min-w-0 flex-1 flex-col lg:ml-64">
         <header className="app-page-background sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-3 px-3 sm:px-5 lg:justify-end lg:px-8">
           <button
             ref={mobileMenuButtonRef}

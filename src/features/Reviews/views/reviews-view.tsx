@@ -99,6 +99,7 @@ export const ReviewsView = () => {
 
           {isGerente && branches.length > 0 && (
             <select
+              aria-label={translateCopy("Sede")}
               value={selectedBranchId ?? ""}
               onChange={(e) => setSelectedBranchId(Number(e.target.value))}
               className="text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-4 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#111827]"

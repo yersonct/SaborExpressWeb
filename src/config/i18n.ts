@@ -395,10 +395,20 @@ for (const language of ["es", "en", "pt", "fr"] as const) {
   Object.assign(resources[language].translation.menu, menuTranslations[language]);
 }
 
+for (const [language, configurationError] of Object.entries({
+  es: "La conexión con el servidor no está configurada. Contacta al administrador.",
+  en: "The server connection is not configured. Contact the administrator.",
+  pt: "A conexão com o servidor não está configurada. Entre em contato com o administrador.",
+  fr: "La connexion au serveur est mal configurée. Contactez votre administrateur.",
+})) {
+  Object.assign(resources[language as keyof typeof resources].translation, { connection: { configurationError } });
+}
+
 i18n.use(initReactI18next).init({
   resources,
   lng: "es",
   fallbackLng: "es",
+  supportedLngs: ["es", "en", "pt", "fr"],
   load: "languageOnly",
   interpolation: {
     escapeValue: false,
