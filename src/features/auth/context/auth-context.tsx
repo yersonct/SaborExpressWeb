@@ -48,6 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 
 
+const hydrationFrame = window.requestAnimationFrame(() => {
 const pathname = window.location.pathname;
 
 const isPublicPage = ["/login", "/letter"].some(
@@ -76,6 +77,8 @@ if (isPublicPage) {
     });
 }
 
+});
+
     const handleSessionRefreshed = (event: Event) => {
       const refreshed = (event as CustomEvent<UserSession>).detail;
       if (!refreshed || navigator.onLine === false) return;
@@ -92,6 +95,7 @@ if (isPublicPage) {
     window.addEventListener("sabor-express:auth-expired", handleSessionExpired);
     return () => {
       active = false;
+      window.cancelAnimationFrame(hydrationFrame);
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("sabor-express:session-refreshed", handleSessionRefreshed);
       window.removeEventListener("sabor-express:auth-expired", handleSessionExpired);
