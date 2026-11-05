@@ -2,7 +2,6 @@
 
 import { translateCopy } from "@/config/copy-translations";
 import { useState, useEffect, useRef, useSyncExternalStore } from "react";
-import axios from "axios";
 import { deferEffect } from "@/lib/defer-effect";
 import Image from "next/image";
 import { useTranslation } from "react-i18next";
@@ -131,17 +130,7 @@ export default function LoginView() {
         router.push(ROUTES.dashboard);
       }, 400);
     } catch (error: unknown) {
-      // 401 = credenciales incorrectas (error esperado): solo se muestra en el modal.
-      // Los demás errores (500, red caída, etc.) sí se registran en consola.
-      const response = axios.isAxiosError(error) ? error.response : undefined;
-      if (response?.status !== 401) {
-        console.error(
-          "LOGIN ERROR:",
-          response?.status,
-          response?.data,
-          error instanceof Error ? error.message : error,
-        );
-      }
+      // No escribas bodies de auth en consola: pueden contener datos sensibles.
       setModal({
         isOpen: true,
         message: error instanceof Error ? translateCopy(error.message) : t("login.error"),

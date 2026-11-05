@@ -1,49 +1,49 @@
 {
-  "name": "admin-web",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint",
-    "typecheck": "tsc --noEmit",
-    "test": "node --import ./scripts/register-typescript.mjs --test src/features/auth/session-memory.test.mjs src/config/api-error.test.mjs scripts/i18n-audit.test.mjs scripts/api-base.test.mjs",
-    "i18n:audit": "node scripts/audit-i18n.mjs",
-    "test:e2e": "playwright test"
-  },
-  "dependencies": {
-    "@microsoft/signalr": "^10.0.11",
-    "axios": "^1.16.1",
-    "i18next": "^26.3.0",
-    "i18next-browser-languagedetector": "^8.2.1",
-    "jspdf": "^4.2.1",
-    "jspdf-autotable": "^5.0.8",
-    "lucide-react": "^1.16.0",
-    "next": "16.4.2",
-    "qrcode.react": "^4.2.0",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "react-i18next": "^17.0.8",
-    "zustand": "^5.0.13"
-  },
-  "devDependencies": {
-    "@playwright/test": "^1.64.1",
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.4.2",
-    "tailwindcss": "^4",
-    "typescript": "^5"
-  },
-  "engines": {
-    "node": ">=20.19.0"
-  },
-  "author": "yersonct",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/yersonct/SaborExpressWeb.git"
-  }
+    "name":  "admin-web",
+    "version":  "0.1.0",
+    "private":  true,
+    "scripts":  {
+                    "dev":  "next dev",
+                    "build":  "next build",
+                    "start":  "next start",
+                    "lint":  "eslint",
+                    "typecheck":  "tsc --noEmit",
+                    "test":  "node --import ./scripts/register-typescript.mjs --test src/features/auth/session-memory.test.mjs src/config/api-error.test.mjs scripts/i18n-audit.test.mjs scripts/api-base.test.mjs src/server/staging-api-proxy.test.mjs",
+                    "i18n:audit":  "node scripts/audit-i18n.mjs",
+                    "test:e2e":  "playwright test"
+                },
+    "dependencies":  {
+                         "@microsoft/signalr":  "^10.0.11",
+                         "axios":  "^1.16.1",
+                         "i18next":  "^26.3.0",
+                         "i18next-browser-languagedetector":  "^8.2.1",
+                         "jspdf":  "^4.2.1",
+                         "jspdf-autotable":  "^5.0.8",
+                         "lucide-react":  "^1.16.0",
+                         "next":  "16.4.2",
+                         "qrcode.react":  "^4.2.0",
+                         "react":  "19.2.4",
+                         "react-dom":  "19.2.4",
+                         "react-i18next":  "^17.0.8",
+                         "zustand":  "^5.0.13"
+                     },
+    "devDependencies":  {
+                            "@playwright/test":  "^1.64.1",
+                            "@tailwindcss/postcss":  "^4",
+                            "@types/node":  "^20",
+                            "@types/react":  "^19",
+                            "@types/react-dom":  "^19",
+                            "eslint":  "^9",
+                            "eslint-config-next":  "16.4.2",
+                            "tailwindcss":  "^4",
+                            "typescript":  "^5"
+                        },
+    "engines":  {
+                    "node":  "\u003e=20.19.0"
+                },
+    "author":  "yersonct",
+    "repository":  {
+                       "type":  "git",
+                       "url":  "https://github.com/yersonct/SaborExpressWeb.git"
+                   }
 }

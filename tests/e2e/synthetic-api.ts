@@ -35,6 +35,19 @@ export async function useSyntheticApi(page: Page, language: string) {
     customerName: "yersonct", customerPhone: null, itemsCount: 1, paymentMethod: "Cash", paymentStatus: "Pending",
     customerRating: null, customerRatingComment: null, ratedAt: null };
   await page.route(/\/api\//, async (route) => {
+    const requestHeaders = route.request().headers();
+    const origin = new URL(page.url()).origin;
+    const corsHeaders = {
+      "access-control-allow-origin": origin,
+      "access-control-allow-credentials": "true",
+      "access-control-allow-methods": requestHeaders["access-control-request-method"] ?? "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+      "access-control-allow-headers": requestHeaders["access-control-request-headers"] ?? "authorization,content-type",
+    };
+    if (route.request().method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: corsHeaders });
+      return;
+    }
+
     const url = new URL(route.request().url());
     const endpoint = url.pathname.replace(/^.*\/api(?:\/v1)?\//, "").toLowerCase();
     let body: unknown = [];
@@ -59,10 +72,7 @@ export async function useSyntheticApi(page: Page, language: string) {
     else if (endpoint.startsWith("employee-schedules/")) body = [{ id: 1, employeeId: 12, employeeName: "yersonct", employeeBranchId: 1, roleId: 3, roleName: "MESERO", isOwnLockedShift: false, branchId: 1, branchName: branch.name, shiftDate: url.searchParams.get("fromDate") ?? now.slice(0, 10), startTime: "08:00:00", endTime: "16:00:00" }];
     else if (endpoint.startsWith("reviews/branch/")) body = [{ id: 1, orderId: 101, customerId: 21, customerName: "yersonct", rating: 5, comment: names[language], createdAt: now }];
     else if (endpoint.startsWith("deliveries/branch/")) body = [delivery];
-    await route.fulfill({ status: 200, json: body, headers: {
-      "access-control-allow-origin": "http://127.0.0.1:3200",
-      "access-control-allow-credentials": "true",
-    } });
+    await route.fulfill({ status: 200, json: body, headers: corsHeaders });
   });
   // Realtime transport is outside the scope of this deterministic UI matrix.
   await page.route(/\/hubs\//, (route) => route.fulfill({ status: 503, body: "" }));
