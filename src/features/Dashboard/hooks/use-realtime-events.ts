@@ -9,8 +9,13 @@ import {
   SERVER_BASE_URL,
 } from "@/config/api";
 import { hasInMemorySession } from "@/features/auth/session-memory";
+import { shouldUseLocalStagingLongPolling } from "@/features/Dashboard/realtime-transport";
 
 const HUB_URL = `${(SERVER_BASE_URL ?? "").replace(/\/+$/, "")}/hubs/notifications`;
+const USE_LOCAL_STAGING_LONG_POLLING = shouldUseLocalStagingLongPolling(
+  process.env.NODE_ENV,
+  SERVER_BASE_URL,
+);
 type EventCallback = (eventName?: string, ...args: unknown[]) => void;
 type ReconnectCallback = () => void;
 export type RealtimeConnectionStatus = "disconnected" | "connecting" | "connected";
@@ -151,6 +156,12 @@ function createConnection(userId: number) {
   const connection = new signalR.HubConnectionBuilder()
     .withUrl(HUB_URL, {
       withCredentials: true,
+      ...(USE_LOCAL_STAGING_LONG_POLLING
+        ? {
+            transport: signalR.HttpTransportType.LongPolling,
+            headers: { "X-Client-App": "admin-web" },
+          }
+        : {}),
     })
     .withAutomaticReconnect()
     .configureLogging(signalR.LogLevel.Critical)
