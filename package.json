@@ -8,8 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types src/features/auth/session-memory.test.mjs && node scripts/i18n-audit.test.mjs",
-    "i18n:audit": "node scripts/audit-i18n.mjs"
+    "test": "node --import ./scripts/register-typescript.mjs --test src/features/auth/session-memory.test.mjs scripts/i18n-audit.test.mjs src/server/staging-api-proxy.test.mjs",
+    "i18n:audit": "node scripts/audit-i18n.mjs",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@microsoft/signalr": "^10.0.11",
@@ -27,6 +28,7 @@
     "zustand": "^5.0.13"
   },
   "devDependencies": {
+    "@playwright/test": "^1.51.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
